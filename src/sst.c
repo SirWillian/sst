@@ -26,6 +26,7 @@
 #include "gameinfo.h"
 #include "gametype.h"
 #include "hook.h"
+#include "memes.h"
 #include "os.h"
 #include "vcall.h"
 #include "version.h"
@@ -69,6 +70,7 @@ ifacefactory factory_client = 0, factory_server = 0, factory_engine = 0;
 static bool has_autojump = false;
 static bool has_demorec = false;
 static bool has_demorec_custom = false;
+static bool has_memes = false;
 
 // HACK: later versions of L4D2 show an annoying dialog on every plugin_load.
 // We can suppress this by catching the message string that's passed from
@@ -132,6 +134,7 @@ nc:	gamedata_init();
 	has_demorec = demorec_init();
 	if (has_demorec) has_demorec_custom = demorec_custom_init();
 	fixes_apply();
+	has_memes = memes_init();
 
 	// NOTE: this is technically redundant for early versions but I CBA writing
 	// a version check; it's easier to just do this unilaterally.
@@ -157,6 +160,7 @@ e:	con_colourmsg(RGBA(64, 255, 64, 255),
 static void do_unload(void) {
 	if (has_autojump) autojump_end();
 	if (has_demorec) demorec_end();
+	if (has_memes) memes_end();
 
 #ifdef __linux__
 	//if (serverlib) dlclose(serverlib);

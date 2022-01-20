@@ -25,7 +25,7 @@ clang -municode -O2 -fuse-ld=lld %warnings% -D_CRT_SECURE_NO_WARNINGS -ladvapi32
 clang -municode -O2 -fuse-ld=lld %warnings% -D_CRT_SECURE_NO_WARNINGS -ladvapi32 ^
 -o .build/mkgamedata.exe src/build/mkgamedata.c src/kv.c || exit /b
 .build\codegen.exe src/autojump.c src/con_.c src/demorec.c src/dbg.c src/fixes.c ^
-src/gamedata.c src/gameinfo.c src/hook.c src/kv.c src/sst.c src/udis86.c || exit /b
+src/gamedata.c src/gameinfo.c src/hook.c src/kv.c src/memes.c src/sst.c src/udis86.c || exit /b
 .build\mkgamedata.exe gamedata/engine.kv gamedata/gamelib.kv || exit /b
 :: llvm-rc doesn't preprocess, looks like it might later:
 :: https://reviews.llvm.org/D100755?id=339141
@@ -46,6 +46,7 @@ call :cc src/gamedata.c || exit /b
 call :cc src/gameinfo.c || exit /b
 call :cc src/hook.c || exit /b
 call :cc src/kv.c || exit /b
+call :cc src/memes.c || exit /b
 call :cc src/sst.c || exit /b
 call :cc src/udis86.c || exit /b
 clang -m32 -shared -O2 -flto -fuse-ld=lld -Wl,/implib:.build/sst.lib,/Brepro ^
