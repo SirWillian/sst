@@ -58,10 +58,10 @@ void *hook_inline(void *func_, void *target) {
 		len += ud_insn_len(&udis);
 	}
 	// for simplicity, just bump alloc the trampoline. no need to free anyway
-	if (nexttrampoline - trampolines > len + 6) goto nospc;
+	if (nexttrampoline - trampolines > sizeof(trampolines) - len - 6) goto nospc;
 	uchar *trampoline = (uchar *)InterlockedExchangeAdd(
 			(volatile long *)&nexttrampoline, len + 6);
-	if (trampoline - trampolines > len + 6) { // avoid TOCTOU
+	if (trampoline - trampolines > sizeof(trampolines) - len - 6) { // avoid TOCTOU
 nospc:	con_warn("hook_inline: out of trampoline space\n");
 		return 0;
 	}
