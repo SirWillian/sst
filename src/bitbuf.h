@@ -1,5 +1,6 @@
 /*
  * Copyright © 2024 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2025 Willian Henrique <wsimabrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -48,7 +49,9 @@ static inline void _bitbuf_append(struct bitbuf *bb, bitbuf_cell x, int nbits) {
 	bb->cells[idx] |= x << shift;
 	// assign the next cell (that also clears the upper bits for the next OR)
 	// if nbits fits in the first cell, this zeros the next cell, which is fine
-	bb->cells[idx + 1] = x >> (bitbuf_cell_bits - shift);
+	// also avoid right shifting 32 bits when shift is 0 since that actually
+	// doesn't shift anything
+	bb->cells[idx + 1] = shift ? x >> (bitbuf_cell_bits - shift) : 0;
 	bb->curbit += nbits;
 }
 
@@ -96,7 +99,7 @@ static inline void bitbuf_roundup(struct bitbuf *bb) {
 
 /* Clear the bit buffer to make it ready to append new data. */
 static inline void bitbuf_reset(struct bitbuf *bb) {
-	bb->buf[0] = 0; // we have to zero out the lowest cell since it gets ORed
+	bb->cells[0] = 0; // we have to zero out the lowest cell since it gets ORed
 	bb->curbit = 0;
 }
 

@@ -1,5 +1,6 @@
 /*
  * Copyright © 2024 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2025 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +35,7 @@
 FEATURE()
 REQUIRE(demorec)
 REQUIRE_GAMEDATA(vtidx_GetEngineBuildNumber)
+REQUIRE_GAMEDATA(vtidx_IsRecording)
 REQUIRE_GAMEDATA(vtidx_RecordPacket)
 
 static int nbits_msgtype, nbits_datalen;
@@ -46,11 +48,12 @@ static union {
 	char x[CHUNKSZ + /*7*/ 8]; // needs to be multiple of of 4!
 	bitbuf_cell _align; // just in case...
 } bb_buf;
-static struct bitbuf bb = {
-	{bb_buf.x}, ssizeof(bb_buf), ssizeof(bb_buf) * 8, 0, false, false, "SST"
-};
+// static struct bitbuf bb = {
+// 	{bb_buf.x}, ssizeof(bb_buf), ssizeof(bb_buf) * 8, 0, false, false, "SST"
+// };
+static struct bitbuf *bb;
 
-static const void *createhdr(struct bitbuf *msg, int len, bool last) {
+static const void *createhdr(struct bitbuf *msg, int len, bool enc, bool last) {
 	// We pack custom data into user message packets of type "HudText," with a
 	// leading null byte which the engine treats as an empty string. On demo
 	// playback, the client does a text lookup which fails silently on invalid
@@ -60,42 +63,50 @@ static const void *createhdr(struct bitbuf *msg, int len, bool last) {
 	// do here way back when this was first being figured out!
 	bitbuf_appendbits(msg, 23, nbits_msgtype); // type: 23 is user message
 	bitbuf_appendbyte(msg, 2); // user message type: 2 is HudText
-	bitbuf_appendbits(msg, len * 8, nbits_datalen); // our data length in bits
-	bitbuf_appendbyte(msg, 0); // aforementionied null byte
-	bitbuf_appendbyte(msg, 0xAC + last); // arbitrary marker byte to aid parsing
+	// length in bits for overhead (null byte, marker and round up) + our data
+	int roundup = -(msg->curbit + nbits_datalen) & 7;
+	bitbuf_appendbits(msg, (len + 2) * 8 + roundup, nbits_datalen);
+	bitbuf_appendbyte(msg, 0); // aforementioned null byte
+	// arbitrary marker byte to aid parsing
+	bitbuf_appendbyte(msg, 0xAC + (enc << 1) + last);
 	// store the data itself byte-aligned so there's no need to bitshift the
 	// universe (which would be both slower and more annoying to do)
 	bitbuf_roundup(msg);
-	return msg->buf + (msg->nbits >> 3);
+	return msg->buf + (msg->nbits >> 3); // NOTE: can we return nothing instead?
 }
 
 typedef void (*VCALLCONV WriteMessages_func)(void *this, struct bitbuf *msg);
 static WriteMessages_func WriteMessages = 0;
+DECL_VFUNC_DYN(bool, IsRecording)
 
-void democustom_write(const void *buf, int len) {
-	for (; len > CHUNKSZ; len -= CHUNKSZ) {
-		createhdr(&bb, CHUNKSZ, false);
-		memcpy(bb.buf + (bb.nbits >> 3), buf, CHUNKSZ);
-		bb.nbits += CHUNKSZ << 3;
-		WriteMessages(demorecorder, &bb);
-		bitbuf_reset(&bb);
+void democustom_write(const void *buf, int len, bool encrypted) {
+	if (!VCALL(demorecorder, IsRecording) || !bb->buf) return;
+	const u8 *p = buf;
+	// clear upper bits of the current cell before bit writing
+	bitbuf_cell mask;
+	for (; len > CHUNKSZ; len -= CHUNKSZ, p += CHUNKSZ) {
+		mask = (1 << (bb->curbit % bitbuf_cell_bits)) - 1;
+		bb->cells[bb->curbit / bitbuf_cell_bits] &= mask;
+		createhdr(bb, CHUNKSZ, encrypted, false);
+		memcpy(bb->buf + (bb->curbit >> 3), p, CHUNKSZ);
+		bb->curbit += CHUNKSZ << 3;
 	}
-	createhdr(&bb, len, true);
-	memcpy(bb.buf + (bb.nbits >> 3), buf, len);
-	bb.nbits += len << 3;
-	WriteMessages(demorecorder, &bb);
-	bitbuf_reset(&bb);
+	mask = (1 << (bb->curbit % bitbuf_cell_bits)) - 1;
+	bb->cells[bb->curbit / bitbuf_cell_bits] &= mask;
+	createhdr(bb, len, encrypted, true);
+	memcpy(bb->buf + (bb->curbit >> 3), p, len);
+	bb->curbit += len << 3;
 }
 
-static bool find_WriteMessages(void) {
+static bool find_MessageData(void) {
 	const uchar *insns = (*(uchar ***)demorecorder)[vtidx_RecordPacket];
-	// RecordPacket calls WriteMessages right away, so just look for a call
+	// RecordPacket loads m_MessageData right away
 	for (const uchar *p = insns; p - insns < 32;) {
-		if (*p == X86_CALL) {
-			WriteMessages = (WriteMessages_func)(p + 5 + mem_loads32(p + 1));
+		if (*p == X86_LEA) {
+			bb = mem_offset(demorecorder, mem_loads32(p + 2));
 			return true;
 		}
-		NEXT_INSN(p, "WriteMessages function");
+		NEXT_INSN(p, "m_MessageData member");
 	}
 	return false;
 }
@@ -120,7 +131,7 @@ INIT {
 		if (buildnum >= 2042) nbits_datalen = 11; else nbits_datalen = 12;
 	//}
 
-	return find_WriteMessages();
+	return find_MessageData();
 }
 
 // vi: sw=4 ts=4 noet tw=80 cc=80
