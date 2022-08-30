@@ -25,6 +25,7 @@ vtidx_ConsoleColorPrintf
 # CDemoRecorder
 vtidx_StartRecording 2
 vtidx_SetSignonState 3
+vtidx_IsRecording 4
 vtidx_StopRecording 7
 vtidx_RecordPacket 11
 
