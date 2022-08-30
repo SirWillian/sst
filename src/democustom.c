@@ -62,13 +62,15 @@ static const void *createhdr(struct bitbuf *msg, int len, bool last) {
 	// do here way back when this was first being figured out!
 	bitbuf_appendbits(msg, 23, nbits_msgtype); // type: 23 is user message
 	bitbuf_appendbyte(msg, 2); // user message type: 2 is HudText
-	bitbuf_appendbits(msg, len * 8, nbits_datalen); // our data length in bits
-	bitbuf_appendbyte(msg, 0); // aforementionied null byte
+	// length in bits for overhead (null byte, marker and round up) + our data
+	int roundup = -(msg->curbit + nbits_datalen) & 7;
+	bitbuf_appendbits(msg, (len + 2) * 8 + roundup, nbits_datalen);
+	bitbuf_appendbyte(msg, 0); // aforementioned null byte
 	bitbuf_appendbyte(msg, 0xAC + last); // arbitrary marker byte to aid parsing
 	// store the data itself byte-aligned so there's no need to bitshift the
 	// universe (which would be both slower and more annoying to do)
 	bitbuf_roundup(msg);
-	return msg->buf + (msg->nbits >> 3);
+	return msg->buf + (msg->nbits >> 3); // NOTE: can we return nothing instead?
 }
 
 typedef void (*VCALLCONV WriteMessages_func)(void *this, struct bitbuf *msg);
@@ -79,14 +81,14 @@ void democustom_write(const void *buf, int len) {
 	if (!VCALL(demorecorder, IsRecording)) return;
 	for (; len > CHUNKSZ; len -= CHUNKSZ) {
 		createhdr(&bb, CHUNKSZ, false);
-		memcpy(bb.buf + (bb.nbits >> 3), buf, CHUNKSZ);
-		bb.nbits += CHUNKSZ << 3;
+		memcpy(bb.buf + (bb.curbit >> 3), buf, CHUNKSZ);
+		bb.curbit += CHUNKSZ << 3;
 		WriteMessages(demorecorder, &bb);
 		bitbuf_reset(&bb);
 	}
 	createhdr(&bb, len, true);
-	memcpy(bb.buf + (bb.nbits >> 3), buf, len);
-	bb.nbits += len << 3;
+	memcpy(bb.buf + (bb.curbit >> 3), buf, len);
+	bb.curbit += len << 3;
 	WriteMessages(demorecorder, &bb);
 	bitbuf_reset(&bb);
 }
