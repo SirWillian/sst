@@ -1,5 +1,6 @@
 /*
  * Copyright © 2023 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2023 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,6 +34,7 @@
 FEATURE()
 REQUIRE(demorec)
 REQUIRE_GAMEDATA(vtidx_GetEngineBuildNumber)
+REQUIRE_GAMEDATA(vtidx_IsRecording)
 REQUIRE_GAMEDATA(vtidx_RecordPacket)
 
 static int nbits_msgtype, nbits_datalen;
@@ -70,8 +72,10 @@ static const void *createhdr(struct bitbuf *msg, int len, bool last) {
 
 typedef void (*VCALLCONV WriteMessages_func)(void *this, struct bitbuf *msg);
 static WriteMessages_func WriteMessages = 0;
+DECL_VFUNC_DYN(bool, IsRecording)
 
 void democustom_write(const void *buf, int len) {
+	if (!VCALL(demorecorder, IsRecording)) return;
 	for (; len > CHUNKSZ; len -= CHUNKSZ) {
 		createhdr(&bb, CHUNKSZ, false);
 		memcpy(bb.buf + (bb.nbits >> 3), buf, CHUNKSZ);
