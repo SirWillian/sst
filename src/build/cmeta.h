@@ -1,5 +1,6 @@
 /*
  * Copyright © 2022 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2022 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +19,7 @@
 #define INC_CMETA_H
 
 #include "../os.h"
+#include "vec.h"
 
 struct cmeta;
 
@@ -82,6 +84,27 @@ void cmeta_evdefmacros(const struct cmeta *cm, void (*cb)(const char *name,
  */
 void cmeta_evhandlermacros(const struct cmeta *cm, const char *modname,
 		void (*cb)(const char *evname, const char *modname));
+
+struct msg_member {
+	const char* name;
+	const char* len_offset;
+	const char* members;
+	int members_offset;
+	char key[16];
+	int token_type;
+	int item_type;
+	int deref;
+	int arr_len;
+};
+struct vec_member VEC(struct msg_member);
+
+/*
+ * Iterates through all demo custom messages declared using macros, passing
+ * message metadata to a callback
+ */ 
+void cmeta_msgmacros(const struct cmeta *cm, void (*cb)(char *msgdef,
+		int msgdeflen, const char *msgname, const char *msgtype,
+		struct vec_member *msgmembers));
 #endif
 
 // vi: sw=4 ts=4 noet tw=80 cc=80

@@ -73,6 +73,7 @@ src="\
 	l4dmm.c
 	l4dreset.c
 	l4dwarp.c
+	mpack.c
 	nosleep.c
 	portalcolours.c
 	sst.c

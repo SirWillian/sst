@@ -1,5 +1,6 @@
 /*
  * Copyright © 2023 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2022 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../3p/mpack/core.h"
 #include "../intdefs.h"
 #include "../os.h"
 #include "cmeta.h"
@@ -406,6 +408,120 @@ void cmeta_evhandlermacros(const struct cmeta *cm, const char *modname,
 			cb_handler(name, modname);
 		}
 		tp = tp->next;
+	}
+}
+
+#define COPY_TOKEN_STRING(str, tp, len) \
+	memcpy(str, tp->loc, len); \
+	str[len] = '\0';
+
+#define ALLOC_STRING_LEN(str, tp, len) do { \
+	char *tmp = malloc(len + 1); \
+	if (!tmp) die1("couldn't allocate memory"); \
+	COPY_TOKEN_STRING(tmp, tp, len) \
+	str = tmp;\
+} while(0)
+
+#define ALLOC_STRING(str, tp) ALLOC_STRING_LEN(str, tp, tp->len)
+
+void cmeta_msgmacros(const struct cmeta *cm,
+		void (*cb)(char *d, int dl, const char *n, const char *t,
+		struct vec_member *m)) {
+	Token *tp = (Token *)cm;
+	struct vec_member members = {0};
+	struct msg_member curmember = {0};
+	Token *tokmsgstart;
+	char *msgname, *msgtype;
+	bool inobj = false, inarr = false, inmember = false;
+	int bracedepth = 0;
+	while (tp) {
+		if (equal(tp, "DEMO_MSG") && equal(tp->next, "(") || equal(tp, "DEMO_STRUCT")) {
+			bool hastype = equal(tp, "DEMO_MSG");
+			tp = tp->next->next;
+			if (hastype) {
+				ALLOC_STRING(msgtype, tp);
+				tp = tp->next->next->next; // skip over ") struct"
+			}
+			else {
+				ALLOC_STRING_LEN(msgtype, tp, 0); // empty string
+			}
+			ALLOC_STRING(msgname, tp);
+			tokmsgstart = tp;
+			inobj = true;
+		}
+		else if ((equal(tp, "MSG_MEMBER") || equal(tp, "MSG_MEMBER_KEY")) &&
+				equal(tp->next, "(")) {
+			bool haskey = equal(tp, "MSG_MEMBER_KEY");
+			curmember = (struct msg_member){0};
+			tp = tp->next->next;
+			ALLOC_STRING(curmember.name, tp);
+			if (haskey) tp = tp->next->next;
+			int len = tp->len;
+			if (len > sizeof(curmember.key) - 1)
+				len = sizeof(curmember.key) - 1;
+			COPY_TOKEN_STRING(curmember.key, tp, len);
+			inmember = true;
+		}
+		else if (equal(tp, "MSG_BOOLEAN")) {
+			if (inarr) curmember.item_type = MPACK_TOKEN_BOOLEAN;
+			else curmember.token_type = MPACK_TOKEN_BOOLEAN;
+		}
+		else if (equal(tp, "MSG_INT")) {
+			if (inarr) curmember.item_type = MPACK_TOKEN_SINT;
+			else curmember.token_type = MPACK_TOKEN_SINT;
+		}
+		else if (equal(tp, "MSG_ULONG")) {
+			if (inarr) curmember.item_type = MPACK_TOKEN_UINT;
+			else curmember.token_type = MPACK_TOKEN_UINT;
+		}
+		else if (equal(tp, "MSG_STR") || equal(tp, "MSG_DYN_STR")) {
+			if (equal(tp, "MSG_DYN_STR")) curmember.deref++;
+			if (inarr) curmember.item_type = MPACK_TOKEN_STR;
+			else curmember.token_type = MPACK_TOKEN_STR;
+		}
+		else if (equal(tp, "MSG_ARRAY") || equal(tp, "MSG_DYN_ARRAY")) {
+			// arrays in arrays won't work but hopefully we won't need those
+			curmember.token_type = MPACK_TOKEN_ARRAY;
+			bool isdyn = equal(tp, "MSG_DYN_ARRAY");
+			tp = tp->next->next;
+			if (isdyn) {
+				curmember.deref++;
+				ALLOC_STRING(curmember.len_offset, tp);
+			}
+			else {
+				curmember.arr_len = atoi(tp->loc);
+			}
+			inarr = true;
+		}
+		else if (equal(tp, "MSG_MAP")) {
+			if (inarr) curmember.item_type = MPACK_TOKEN_MAP;
+			else curmember.token_type = MPACK_TOKEN_MAP;
+			tp = tp->next->next;
+			if (equal(tp, "struct")) tp = tp->next;
+			ALLOC_STRING(curmember.members, tp);
+			curmember.members_offset = (tp->loc - tokmsgstart->loc);
+		}
+		else if (equal(tp, "MSG_PTR")) {
+			curmember.deref++;
+		}
+		else if (inmember && equal(tp, ")")) {
+			inmember = false; inarr = false;
+			vec_push(&members, curmember);
+		}
+		else if (inobj) {
+			if (equal(tp, "{")) bracedepth++;
+			else if (equal(tp, "}")) bracedepth--;
+			if (bracedepth == 0) {
+				inobj = false;
+				int deflen = (tp->loc - tokmsgstart->loc) + tp->len;
+				char *msgdef;
+				ALLOC_STRING_LEN(msgdef, tokmsgstart, deflen);
+				cb(msgdef, deflen + 1, msgname, msgtype, &members);
+				members = (struct vec_member){0};
+			}
+		}
+		tp = tp->next;
+		if (tp && equal(tp, ",")) tp = tp->next;
 	}
 }
 

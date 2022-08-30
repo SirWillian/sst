@@ -22,6 +22,28 @@
  * packets if too long. Assumes a demo is currently being recorded.
  */
 void democustom_write(const void *buf, int len);
+#include <demomsg.gen.h>
+
+// enum demomsg_type {
+// 	// msg types go here
+// };
+
+#define DEMO_MSG(type)
+#define DEMO_STRUCT // for structs only used inside other messages
+#define MSG_MEMBER(member, type, ...) type(member, __VA_ARGS__)
+#define MSG_MEMBER_KEY(member, key, type, ...) MSG_MEMBER(member, type, __VA_ARGS__)
+
+// add types as needed
+// XXX: maybe fuse all number types together
+#define MSG_BOOLEAN(name) bool name
+#define MSG_INT(name) int name
+#define MSG_ULONG(name) unsigned long name
+#define MSG_STR(name, size) char name[size]
+#define MSG_DYN_STR(name) char *name
+#define MSG_ARRAY(name, size, type, ...) type(name, __VA_ARGS__)[size]
+#define MSG_DYN_ARRAY(name, size_member, type, ...) type(*name, __VA_ARGS__)
+#define MSG_MAP(name, type) type name
+#define MSG_PTR(name, type, ...) type(*name, __VA_ARGS__)
 
 #endif
 

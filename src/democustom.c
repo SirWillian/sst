@@ -15,6 +15,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "bitbuf.h"
@@ -26,6 +27,7 @@
 #include "gamedata.h"
 #include "intdefs.h"
 #include "mem.h"
+#include "mpack.h"
 #include "ppmagic.h"
 #include "vcall.h"
 #include "x86.h"
@@ -50,6 +52,166 @@ static union {
 static struct bitbuf bb = {
 	{bb_buf.x}, sizeof(bb_buf), sizeof(bb_buf) * 8, 0, false, false, "SST"
 };
+
+struct member_meta {
+	char key[16];
+	size_t offsetof;
+	mpack_token_type_t token_type;
+	mpack_token_type_t item_type; // for arrays
+	size_t size; // size in bytes for numbers and array elements
+	int length; // for static arrays
+	size_t length_offsetof; // for dynamic arrays
+	int member_count; // for maps
+	struct member_meta *members; // for maps
+	u8 deref;
+};
+
+struct struct_packer {
+	void *object;
+	int member_count;
+	int msg_type;
+	struct member_meta *members;
+	struct struct_packer *prev;
+};
+#define _PACKER_MEMBERS(obj_type) _demomsg_##obj_type##_members
+#define _PACKER_COUNT(obj_type) \
+	sizeof(_PACKER_MEMBERS(obj_type)) / sizeof(struct member_meta)
+#define MSG_PACKER(obj, obj_type, msgtype) \
+	(struct struct_packer) { \
+		.object = obj, \
+		.msg_type = msgtype, \
+		.member_count = _PACKER_COUNT(obj_type), \
+		.members = _PACKER_MEMBERS(obj_type), \
+		.prev = NULL \
+	}
+
+static inline void *get_struct_member(mpack_node_t *parent, void *object,
+		struct member_meta *meta) {
+	char *member = (char *)object + meta->offsetof;
+	for (int i = 0; i < meta->deref; i++) {
+		member = *(char **)member;
+		if (member == NULL) return NULL;
+	}
+	if (parent->tok.type == MPACK_TOKEN_ARRAY)
+		member += parent->pos * meta->size;
+	return (void *)member;
+}
+
+static inline mpack_uint32_t get_token_length(mpack_token_type_t tok_type,
+		struct struct_packer *packer, struct member_meta *meta, void *member) {
+	if (meta->length_offsetof)
+		return *(u32 *)((char *)packer->object + meta->length_offsetof);
+	if (tok_type == MPACK_TOKEN_STR) return strlen(member);
+	return meta->length;
+}
+
+// TODO: do serialization that isn't stack based
+static void struct_pack_enter(mpack_parser_t *parser, mpack_node_t *node) {
+	mpack_node_t *parent = MPACK_PARENT_NODE(node);
+	struct struct_packer *packer;
+	packer = (struct struct_packer *)parser->data.p;
+	// just started packing
+	// pack an array for msg type and content
+	if (!parent) {
+		node->tok = mpack_pack_array(2);
+		return;
+	}
+	// we've packed the container array
+	// pack the msg type and then the content
+	if (parent->tok.type == MPACK_TOKEN_ARRAY && !MPACK_PARENT_NODE(parent)) {
+		if (!parent->pos) node->tok = mpack_pack_number(packer->msg_type);
+		else node->tok = mpack_pack_map(packer->member_count);
+		return;
+	}
+	// process the message content
+	int metadata_pos = parent->data[0].u;
+	struct member_meta meta = packer->members[metadata_pos];
+
+	if (!parent->key_visited) {
+		// keys are always strings
+		size_t key_size = strlen(meta.key);
+		if (parent->tok.type == MPACK_TOKEN_STR) {
+			node->tok = mpack_pack_chunk(meta.key, key_size);
+		}
+		else {
+			node->tok = mpack_pack_str(key_size);
+			node->data[0].u = metadata_pos;
+		}
+		return;
+	}
+
+	void *member = get_struct_member(parent, packer->object, &meta);
+	if (member == NULL) {
+		node->tok = mpack_pack_nil();
+		return;
+	}
+	if (parent->tok.type >= MPACK_TOKEN_STR) {
+		u32 length = get_token_length(parent->tok.type, packer, &meta, member);
+		node->tok = mpack_pack_chunk(member, length);
+		return;
+	}
+
+	mpack_token_type_t pack_type = parent->tok.type == MPACK_TOKEN_ARRAY ?
+		meta.item_type : meta.token_type;
+	switch (pack_type) {
+		case MPACK_TOKEN_BOOLEAN:
+			node->tok = mpack_pack_boolean(*(bool *)member);
+			break;
+		// XXX: consider packing all number types with their own pack functions
+		case MPACK_TOKEN_UINT:
+		case MPACK_TOKEN_SINT:
+		case MPACK_TOKEN_FLOAT:
+			u64 mask = (1ULL << 8 * meta.size) - 1;
+			double number = (double)((*(u64 *)member) & mask);
+			node->tok = mpack_pack_number(number);
+			break;
+		case MPACK_TOKEN_ARRAY:
+		case MPACK_TOKEN_STR:
+		case MPACK_TOKEN_BIN: {
+			// XXX: handle EXT types some day here if needed
+			u32 length = get_token_length(pack_type, packer, &meta, member);
+			if (pack_type == MPACK_TOKEN_ARRAY)
+				node->tok = mpack_pack_array(length);
+			else if (pack_type == MPACK_TOKEN_STR)
+				node->tok = mpack_pack_str(length);
+			else
+				node->tok = mpack_pack_bin(length);
+			// setting flag to represent the parent map's key_visited state to
+			// simplify the logic for packing map keys above, since these types
+			// become parents. idk if i should be touching this flag but the
+			// library doesn't seem to touch it for anything but maps so this
+			// shouldn't cause bugs in the library
+			node->key_visited = true;
+			node->data[0].u = metadata_pos;
+			break;
+		}
+		case MPACK_TOKEN_MAP:
+			packer = malloc(sizeof(struct struct_packer));
+			packer->object = member;
+			packer->member_count = meta.member_count;
+			packer->members = meta.members;
+			packer->prev = parser->data.p;
+			parser->data.p = packer;
+			node->tok = mpack_pack_map(packer->member_count);
+			break;
+		default:
+			break;
+	}
+}
+
+static void struct_pack_exit(mpack_parser_t *parser, mpack_node_t *node) {
+	mpack_node_t *parent = MPACK_PARENT_NODE(node);
+	struct struct_packer *packer = parser->data.p;
+	if (parent && MPACK_PARENT_NODE(parent)) {
+		if (node->tok.type == MPACK_TOKEN_MAP) {
+			parser->data.p = packer->prev;
+			free(packer);
+		}
+		// this simplifies retrieving metadata in the enter cb
+		if (parent->tok.type == MPACK_TOKEN_MAP)
+			parent->data[0].u = parent->pos;
+	}
+}
 
 static const void *createhdr(struct bitbuf *msg, int len, bool last) {
 	// We pack custom data into user message packets of type "HudText," with a
@@ -89,6 +251,8 @@ void democustom_write(const void *buf, int len) {
 	WriteMessages(demorecorder, &bb);
 	bitbuf_reset(&bb);
 }
+
+#include <demomsginit.gen.h>
 
 static bool find_WriteMessages(void) {
 	const uchar *insns = (*(uchar ***)demorecorder)[vtidx_RecordPacket];
