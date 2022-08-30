@@ -61,7 +61,7 @@ static const void *createhdr(struct bitbuf *msg, int len, bool last) {
 	// do here way back when this was first being figured out!
 	bitbuf_appendbits(msg, 23, nbits_msgtype); // type: 23 is user message
 	bitbuf_appendbyte(msg, 2); // user message type: 2 is HudText
-	bitbuf_appendbits(msg, len * 8, nbits_datalen); // our data length in bits
+	bitbuf_appendbits(msg, (len + 3) * 8, nbits_datalen); // our data length in bits
 	bitbuf_appendbyte(msg, 0); // aforementionied null byte
 	bitbuf_appendbyte(msg, 0xAC + last); // arbitrary marker byte to aid parsing
 	// store the data itself byte-aligned so there's no need to bitshift the
