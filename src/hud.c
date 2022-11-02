@@ -26,42 +26,60 @@
 #include "os.h"
 #include "vcall.h"
 
-FEATURE("hud painting")
-
-REQUIRE_GAMEDATA(vtidx_DrawPrintText)
-REQUIRE_GAMEDATA(vtidx_Paint)
-REQUIRE_GAMEDATA(vtidx_SetPaintEnabled)
-REQUIRE_GAMEDATA(vtidx_GetScheme)
-REQUIRE_GAMEDATA(vtidx_GetIScheme)
-REQUIRE_GAMEDATA(vtidx_GetFont)
-REQUIRE_GAMEDATA(off_engineToolsPanel)
-REQUIRE_GLOBAL(factory_engine)
-
-enum FontDrawType {
+struct hscheme { ulong handle; };
+enum fontdrawtype {
 	FONT_DRAW_DEFAULT = 0,
 	FONT_DRAW_NONADDITIVE,
 	FONT_DRAW_ADDITIVE,
 	FONT_DRAW_TYPE_COUNT = 2,
 };
 
-typedef ulong HScheme;
+FEATURE("hud painting")
+REQUIRE_GLOBAL(factory_engine)
+// ISurface
+REQUIRE_GAMEDATA(vtidx_DrawSetColor)
+REQUIRE_GAMEDATA(vtidx_DrawFilledRect)
+REQUIRE_GAMEDATA(vtidx_DrawOutlinedRect)
+REQUIRE_GAMEDATA(vtidx_DrawLine)
+REQUIRE_GAMEDATA(vtidx_DrawPolyLine)
+REQUIRE_GAMEDATA(vtidx_DrawSetTextFont)
+REQUIRE_GAMEDATA(vtidx_DrawSetTextColor)
+REQUIRE_GAMEDATA(vtidx_DrawSetTextPos)
+REQUIRE_GAMEDATA(vtidx_DrawPrintText)
+REQUIRE_GAMEDATA(vtidx_GetScreenSize)
+// CEngineVGui
+REQUIRE_GAMEDATA(off_engineToolsPanel)
+// vgui::Panel
+REQUIRE_GAMEDATA(vtidx_SetPaintEnabled)
+REQUIRE_GAMEDATA(vtidx_Paint)
+// ISchemeManager
+REQUIRE_GAMEDATA(vtidx_GetScheme)
+REQUIRE_GAMEDATA(vtidx_GetIScheme)
+// IScheme
+REQUIRE_GAMEDATA(vtidx_GetFont)
 
 DEF_EVENT(HudPaint)
 
 // ISurface
+DECL_VFUNC_DYN(void, DrawSetColor, struct con_colour)
+DECL_VFUNC_DYN(void, DrawFilledRect, int, int, int, int)
+DECL_VFUNC_DYN(void, DrawOutlinedRect, int, int, int, int)
+DECL_VFUNC_DYN(void, DrawLine, int, int, int, int)
+DECL_VFUNC_DYN(void, DrawPolyLine, int *, int *, int)
+DECL_VFUNC_DYN(void, DrawSetTextFont, struct hfont)
+DECL_VFUNC_DYN(void, DrawSetTextColor, struct con_colour)
 DECL_VFUNC_DYN(void, DrawSetTextPos, int, int)
-DECL_VFUNC_DYN(void, DrawSetTextColor, int, int, int, int)
-DECL_VFUNC_DYN(void, DrawSetTextFont, HFont)
-DECL_VFUNC_DYN(void, DrawPrintText, ushort *, int, enum FontDrawType)
+DECL_VFUNC_DYN(void, DrawPrintText, ushort *, int, enum fontdrawtype)
+DECL_VFUNC_DYN(void, GetScreenSize, int *, int *)
 // vgui::Panel
 DECL_VFUNC_DYN(void, SetPaintEnabled, bool)
 // ISchemeManager
-DECL_VFUNC_DYN(HScheme, GetScheme, const char *)
-DECL_VFUNC_DYN(void*, GetIScheme, HScheme)
+DECL_VFUNC_DYN(struct hscheme, GetScheme, const char *)
+DECL_VFUNC_DYN(void*, GetIScheme, struct hscheme)
 // IScheme
-DECL_VFUNC_DYN(HFont, GetFont, const char *, bool)
+DECL_VFUNC_DYN(struct hfont, GetFont, const char *, bool)
 
-static void *matsyssurf;
+static void *mss;
 static void *scheme;
 static void *toolspanel;
 static void **vtable;
@@ -69,16 +87,37 @@ static void **vtable;
 typedef void (*VCALLCONV Paint_func)(void *);
 Paint_func orig_Paint;
 
-HFont hud_getfont(const char *name, bool proportional) {
+struct hfont hud_getfont(const char *name, bool proportional) {
 	return GetFont(scheme, name, proportional);
 }
 
-void hud_drawtext(HFont font, int x, int y, struct Color color, ushort *str,
-		size_t len) {
-	DrawSetTextFont(matsyssurf, font);
-	DrawSetTextPos(matsyssurf, x, y);
-	DrawSetTextColor(matsyssurf, color.r, color.g, color.b, color.a);
-	DrawPrintText(matsyssurf, str, len, FONT_DRAW_DEFAULT);
+void hud_setcolour(struct con_colour colour) {
+	DrawSetColor(mss, colour);
+}
+
+void hud_drawrect(int x0, int y0, int x1, int y1, bool filled) {
+	if (filled) DrawFilledRect(mss, x0, y0, x1, y1);
+	else DrawOutlinedRect(mss, x0, y0, x1, y1);
+}
+
+void hud_drawline(int x0, int y0, int x1, int y1) {
+	DrawLine(mss, x0, y0, x1, y1);
+}
+
+void hud_drawpolyline(int *x, int *y, int num_points) {
+	DrawPolyLine(mss, x, y, num_points);
+}
+
+void hud_drawtext(struct hfont font, int x, int y, struct con_colour colour,
+		ushort *str, size_t len) {
+	DrawSetTextFont(mss, font);
+	DrawSetTextPos(mss, x, y);
+	DrawSetTextColor(mss, colour);
+	DrawPrintText(mss, str, len, FONT_DRAW_DEFAULT);
+}
+
+void hud_getscreensize(int *width, int *height) {
+	GetScreenSize(mss, width, height);
 }
 
 void VCALLCONV hook_Paint(void *this) {
@@ -88,20 +127,16 @@ void VCALLCONV hook_Paint(void *this) {
 	orig_Paint(this);
 }
 
-PREINIT {
-	return true;
-}
-
 INIT {
-	matsyssurf = factory_engine("MatSystemSurface006", 0);
+	mss = factory_engine("MatSystemSurface006", 0);
 	void *enginevgui = factory_engine("VEngineVGui001", 0);
 	void *schememgr = factory_engine("VGUI_Scheme010", 0);
-	if (!(enginevgui && matsyssurf && schememgr)) {
+	if (!(enginevgui && mss && schememgr)) {
 		errmsg_errorx("couldn't get interfaces");
 		return false;
 	}
-	scheme = GetIScheme(schememgr, 1); // 1 is default scheme
-
+	// 1 is the default, first loaded scheme. should always be sourcescheme.res
+	scheme = GetIScheme(schememgr, (struct hscheme){1});
 	toolspanel = mem_loadptr(mem_offset(enginevgui, off_engineToolsPanel));
 	vtable = *(void***)toolspanel;
 	if (!os_mprot(vtable + vtidx_Paint, sizeof(void *),
@@ -112,7 +147,6 @@ INIT {
 	orig_Paint = (Paint_func)hook_vtable(vtable, vtidx_Paint,
 			(void *)&hook_Paint);
 	SetPaintEnabled(toolspanel, true);
-
 	return true;
 }
 

@@ -16,30 +16,27 @@
 
 #ifndef INC_HUD_H
 
+#include "con_.h"
 #include "event.h"
 #include "intdefs.h"
 
 DECL_EVENT(HudPaint)
 
-struct Color {
-	int r;
-	int g;
-	int b;
-	int a;
-};
-
-const struct Color COLOR_WHITE = { 255, 255, 255, 255 };
-const struct Color COLOR_RED = { 255, 0, 0, 255 };
-const struct Color COLOR_GREEN = { 0, 255, 0, 255 };
-const struct Color COLOR_BLUE = { 0, 0, 255, 255 };
-
-typedef ulong HFont;
+struct hfont { ulong handle; };
 
 // get the handle to a font from it's name (sourcescheme.res)
-HFont hud_getfont(const char *name, bool proportional);
+struct hfont hud_getfont(const char *name, bool proportional);
 
-// draw some text on the screen
-void hud_drawtext(HFont font, int x, int y, struct Color color, ushort *str,
-		size_t len);
+void hud_setcolour(struct con_colour colour);
+
+void hud_drawrect(int x0, int y0, int x1, int y1, bool filled);
+
+void hud_drawline(int x0, int y0, int x1, int y1);
+
+// draw a string of lines with `num_points` points from arrays x and y
+void hud_drawpolyline(int *x, int *y, int num_points);
+
+void hud_drawtext(struct hfont font, int x, int y, struct con_colour c,
+		ushort *str, size_t len);
 
 #endif

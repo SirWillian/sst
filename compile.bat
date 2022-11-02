@@ -14,7 +14,7 @@ if "%CC%"=="" set CC=clang --target=i686-pc-windows-msvc -fuse-ld=lld
 if "%HOSTCC%"=="" set HOSTCC=clang -fuse-ld=lld
 
 set warnings=-Wall -pedantic -Wno-parentheses -Wno-missing-braces ^
--Wno-gnu-zero-variadic-macro-arguments
+-Wno-gnu-zero-variadic-macro-arguments -Wno-strict-prototypes
 
 set dbg=0
 if "%dbg%"=="1" (
