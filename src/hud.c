@@ -80,27 +80,25 @@ DECL_VFUNC_DYN(void*, GetIScheme, struct hscheme)
 DECL_VFUNC_DYN(struct hfont, GetFont, const char *, bool)
 
 static void *mss;
-static void *scheme;
-static void *toolspanel;
-static void **vtable;
 
+static void *toolspanel;
 typedef void (*VCALLCONV Paint_func)(void *);
 Paint_func orig_Paint;
 
+static void *scheme;
 struct hfont hud_getfont(const char *name, bool proportional) {
 	return GetFont(scheme, name, proportional);
 }
 
-void hud_setcolour(struct con_colour colour) {
+void hud_drawrect(int x0, int y0, int x1, int y1, struct con_colour colour,
+		bool filled) {
 	DrawSetColor(mss, colour);
-}
-
-void hud_drawrect(int x0, int y0, int x1, int y1, bool filled) {
 	if (filled) DrawFilledRect(mss, x0, y0, x1, y1);
 	else DrawOutlinedRect(mss, x0, y0, x1, y1);
 }
 
-void hud_drawline(int x0, int y0, int x1, int y1) {
+void hud_drawline(int x0, int y0, int x1, int y1, struct con_colour colour) {
+	DrawSetColor(mss, colour);
 	DrawLine(mss, x0, y0, x1, y1);
 }
 
@@ -135,10 +133,8 @@ INIT {
 		errmsg_errorx("couldn't get interfaces");
 		return false;
 	}
-	// 1 is the default, first loaded scheme. should always be sourcescheme.res
-	scheme = GetIScheme(schememgr, (struct hscheme){1});
 	toolspanel = mem_loadptr(mem_offset(enginevgui, off_engineToolsPanel));
-	vtable = *(void***)toolspanel;
+	void **vtable = *(void***)toolspanel;
 	if (!os_mprot(vtable + vtidx_Paint, sizeof(void *),
 			PAGE_READWRITE)) {
 		errmsg_errorsys("couldn't make virtual table writable");
@@ -147,11 +143,13 @@ INIT {
 	orig_Paint = (Paint_func)hook_vtable(vtable, vtidx_Paint,
 			(void *)&hook_Paint);
 	SetPaintEnabled(toolspanel, true);
+	// 1 is the default, first loaded scheme. should always be sourcescheme.res
+	scheme = GetIScheme(schememgr, (struct hscheme){1});
 	return true;
 }
 
 END {
-	unhook_vtable(vtable, vtidx_Paint, (void*)orig_Paint);
+	unhook_vtable(*(void***)toolspanel, vtidx_Paint, (void*)orig_Paint);
 	SetPaintEnabled(toolspanel, false);
 }
 

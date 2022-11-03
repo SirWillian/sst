@@ -29,14 +29,17 @@ struct hfont hud_getfont(const char *name, bool proportional);
 
 void hud_setcolour(struct con_colour colour);
 
-void hud_drawrect(int x0, int y0, int x1, int y1, bool filled);
+void hud_drawrect(int x0, int y0, int x1, int y1, struct con_colour colour,
+		bool filled);
 
-void hud_drawline(int x0, int y0, int x1, int y1);
+void hud_drawline(int x0, int y0, int x1, int y1, struct con_colour colour);
 
 // draw a string of lines with `num_points` points from arrays x and y
 void hud_drawpolyline(int *x, int *y, int num_points);
 
 void hud_drawtext(struct hfont font, int x, int y, struct con_colour c,
 		ushort *str, size_t len);
+
+void hud_getscreensize(int *width, int *height);
 
 #endif
