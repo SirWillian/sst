@@ -47,6 +47,8 @@ REQUIRE_GAMEDATA(vtidx_DrawSetTextColor)
 REQUIRE_GAMEDATA(vtidx_DrawSetTextPos)
 REQUIRE_GAMEDATA(vtidx_DrawPrintText)
 REQUIRE_GAMEDATA(vtidx_GetScreenSize)
+REQUIRE_GAMEDATA(vtidx_GetFontTall)
+REQUIRE_GAMEDATA(vtidx_GetCharacterWidth)
 // CEngineVGui
 REQUIRE_GAMEDATA(off_engineToolsPanel)
 // vgui::Panel
@@ -71,6 +73,8 @@ DECL_VFUNC_DYN(void, DrawSetTextColor, struct con_colour)
 DECL_VFUNC_DYN(void, DrawSetTextPos, int, int)
 DECL_VFUNC_DYN(void, DrawPrintText, ushort *, int, enum fontdrawtype)
 DECL_VFUNC_DYN(void, GetScreenSize, int *, int *)
+DECL_VFUNC_DYN(int, GetFontTall, struct hfont)
+DECL_VFUNC_DYN(int, GetCharacterWidth, struct hfont, int)
 // vgui::Panel
 DECL_VFUNC_DYN(void, SetPaintEnabled, bool)
 // ISchemeManager
@@ -116,6 +120,14 @@ void hud_drawtext(struct hfont font, int x, int y, struct con_colour colour,
 
 void hud_getscreensize(int *width, int *height) {
 	GetScreenSize(mss, width, height);
+}
+
+int hud_getfonttall(struct hfont font) {
+	return GetFontTall(mss, font);
+}
+
+int hud_getcharwidth(struct hfont font, int ch) {
+	return GetCharacterWidth(mss, font, ch);
 }
 
 void VCALLCONV hook_Paint(void *this) {

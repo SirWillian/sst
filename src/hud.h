@@ -42,4 +42,8 @@ void hud_drawtext(struct hfont font, int x, int y, struct con_colour c,
 
 void hud_getscreensize(int *width, int *height);
 
+int hud_getfonttall(struct hfont font);
+
+int hud_getcharwidth(struct hfont font, int);
+
 #endif

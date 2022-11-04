@@ -72,6 +72,7 @@ setlocal DisableDelayedExpansion
 :+ gameinfo.c
 :+ hook.c
 :+ hud.c
+:+ ihud.c
 :+ kv.c
 :+ l4dwarp.c
 :+ nosleep.c
