@@ -56,11 +56,11 @@ struct usercmd {
 	int cmd;
 	int tick;
 	struct vec3f angles;
-	int fmove;
-	int smove;
-	int umove;
+	float fmove;
+	float smove;
+	float umove;
 	int buttons;
-	int impulse;
+	char impulse;
 	int weaponselect;
 	int weaponsubtype;
 	int random_seed;
@@ -137,7 +137,6 @@ static inline bool find_input(void* vclient) {
 	// function, so find it's thisptr being loaded into ECX
 	void* decodeusercmd =
 		(*(void***)vclient)[vtidx_VClient_DecodeUserCmdFromBuffer];
-	errmsg_errorx("%x", (uint)decodeusercmd);
 	for (uchar *p = (uchar *)decodeusercmd; p - (uchar *)decodeusercmd < 32;) {
 		if (p[0] == X86_MOVRMW && p[1] == X86_MODRM(0, 1, 5)) {
 			void **indirect = mem_loadptr(p + 2);
@@ -154,15 +153,14 @@ static inline bool find_input(void* vclient) {
 
 void VCALLCONV hook_CreateMove(void *this, int seq, float ft, bool active) {
 	orig_CreateMove(this, seq, ft, active);
-	buttons = GetUserCmd(this, seq)->buttons;
+	struct usercmd *cmd = GetUserCmd(this, seq);
+	if (cmd) buttons = cmd->buttons;
 }
 
 void VCALLCONV hook_DecodeUserCmdFromBuffer(void *this, void *reader, int seq) {
-	// dumb hack to get the correct pointer
-	orig_CreateMove(this, seq, 0.015, true);
-	struct usercmd *cmd = GetUserCmd(this, seq);
 	orig_DecodeUserCmdFromBuffer(this, reader, seq);
-	buttons = cmd->buttons;
+	struct usercmd *cmd = GetUserCmd(this, seq);
+	if (cmd) buttons = cmd->buttons;
 }
 
 
