@@ -26,6 +26,11 @@
 #include "os.h"
 #include "vcall.h"
 
+// windows api
+#ifdef CreateFont
+#undef CreateFont
+#endif
+
 struct hscheme { ulong handle; };
 enum fontdrawtype {
 	FONT_DRAW_DEFAULT = 0,
@@ -48,6 +53,8 @@ REQUIRE_GAMEDATA(vtidx_DrawSetTextPos)
 REQUIRE_GAMEDATA(vtidx_DrawPrintText)
 REQUIRE_GAMEDATA(vtidx_GetScreenSize)
 REQUIRE_GAMEDATA(vtidx_GetFontTall)
+REQUIRE_GAMEDATA(vtidx_CreateFont)
+REQUIRE_GAMEDATA(vtidx_SetFontGlyphSet)
 REQUIRE_GAMEDATA(vtidx_GetCharacterWidth)
 // CEngineVGui
 REQUIRE_GAMEDATA(off_engineToolsPanel)
@@ -74,6 +81,9 @@ DECL_VFUNC_DYN(void, DrawSetTextPos, int, int)
 DECL_VFUNC_DYN(void, DrawPrintText, ushort *, int, enum fontdrawtype)
 DECL_VFUNC_DYN(void, GetScreenSize, int *, int *)
 DECL_VFUNC_DYN(int, GetFontTall, struct hfont)
+DECL_VFUNC_DYN(struct hfont, CreateFont)
+DECL_VFUNC_DYN(bool, SetFontGlyphSet, struct hfont, const char *, int, int,
+		int, int, int, int, int)
 DECL_VFUNC_DYN(int, GetCharacterWidth, struct hfont, int)
 // vgui::Panel
 DECL_VFUNC_DYN(void, SetPaintEnabled, bool)
@@ -128,6 +138,14 @@ int hud_getfonttall(struct hfont font) {
 
 int hud_getcharwidth(struct hfont font, int ch) {
 	return GetCharacterWidth(mss, font, ch);
+}
+
+struct hfont hud_createfont(const char *fontname, int tall, int weight,
+		int blur, int scanlines, int flags) {
+	struct hfont font = CreateFont(mss);
+	if (SetFontGlyphSet(mss, font, fontname, tall, weight, blur, scanlines, flags,
+			0, 0)) return font;
+	return (struct hfont){0};
 }
 
 void VCALLCONV hook_Paint(void *this) {

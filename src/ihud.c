@@ -182,9 +182,9 @@ INIT {
 		errmsg_errorsys("couldn't make virtual table writable");
 		return false;
 	}
-	font = hud_getfont("CloseCaption_Normal", false);
+	font = hud_createfont("Consolas", 18, 600, 0, 0, FONTFLAG_OUTLINE);
 	if (!font.handle) {
-		errmsg_errorx("couldn't get font");
+		errmsg_errorx("couldn't create font");
 		return false;
 	}
 	orig_CreateMove = (CreateMove_func)hook_vtable(vtable, vtidx_CreateMove,
