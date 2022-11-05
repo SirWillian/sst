@@ -67,7 +67,8 @@ struct usercmd {
 	short mousedx;
 	short mousedy;
 	// client only!!
-	bool predictedv;
+	bool predicted;
+	struct CUtlVector *entitygroundcontact;
 };
 
 DECL_VFUNC_DYN(struct usercmd *, GetUserCmd, int)
@@ -90,12 +91,12 @@ struct key {
 	enum incode button;
 };
 
-static int padding = 5;
-static int size = 60;
+static int padding = 0;
+static int size = 40;
 static int corner = 3;
 static int layout = 0;
-static struct con_colour pressed = {128, 128, 128, 200};
-static struct con_colour unpressed = {0, 0, 0, 92};
+static struct rgba_colour pressed = {128, 128, 128, 200};
+static struct rgba_colour unpressed = {0, 0, 0, 92};
 // default layout
 static struct key layouts[1][10] = {
 	{
@@ -117,7 +118,7 @@ int h;
 HANDLE_EVENT(HudPaint) {
 	hud_getscreensize(&w, &h);
 	for (struct key *k = layouts[layout]; k->button; k++) {
-		struct con_colour colour = buttons & k->button ? pressed : unpressed;
+		struct rgba_colour colour = buttons & k->button ? pressed : unpressed;
 		int x0 = size * k->x + padding * (k->x+1);
 		int y0 = h - size * (k->y+1) - padding * (k->y+1);
 		int x1 = x0 + size * k->w + padding * (k->w-1);
@@ -125,7 +126,7 @@ HANDLE_EVENT(HudPaint) {
 		hud_drawrect(x0, y0, x1, y1, colour, true);
 		int tx = x1 - (x1 - x0) / 2 - hud_getcharwidth(font, k->ch) / 2;
 		int ty = y1 - (y1 - y0) / 2 - hud_getfonttall(font) / 2;
-		hud_drawtext(font, tx, ty, (struct con_colour){255, 255, 255, 255},
+		hud_drawtext(font, tx, ty, (struct rgba_colour){255, 255, 255, 255},
 				&k->ch, 1);
 	};
 }

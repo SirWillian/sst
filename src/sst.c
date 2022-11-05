@@ -179,7 +179,7 @@ static const void *const *const plugin_obj;
 
 static bool already_loaded = false, skip_unload = false;
 
-#define RGBA(r, g, b, a) (&(struct con_colour){(r), (g), (b), (a)})
+#define RGBA(r, g, b, a) (&(struct rgba_colour){(r), (g), (b), (a)})
 
 // auto-update message. see below in do_featureinit()
 static const char *updatenotes = "\
@@ -201,8 +201,8 @@ static void do_featureinit(void) {
 #else
 		unsetenv("SST_UPDATED");
 #endif
-		struct con_colour gold = {255, 210, 0, 255};
-		struct con_colour white = {255, 255, 255, 255};
+		struct rgba_colour gold = {255, 210, 0, 255};
+		struct rgba_colour white = {255, 255, 255, 255};
 		con_colourmsg(&white, "\n" NAME " was just ");
 		con_colourmsg(&gold, "UPDATED");
 		con_colourmsg(&white, " to version ");

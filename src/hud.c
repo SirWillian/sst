@@ -70,13 +70,13 @@ REQUIRE_GAMEDATA(vtidx_GetFont)
 DEF_EVENT(HudPaint)
 
 // ISurface
-DECL_VFUNC_DYN(void, DrawSetColor, struct con_colour)
+DECL_VFUNC_DYN(void, DrawSetColor, struct rgba_colour)
 DECL_VFUNC_DYN(void, DrawFilledRect, int, int, int, int)
 DECL_VFUNC_DYN(void, DrawOutlinedRect, int, int, int, int)
 DECL_VFUNC_DYN(void, DrawLine, int, int, int, int)
 DECL_VFUNC_DYN(void, DrawPolyLine, int *, int *, int)
 DECL_VFUNC_DYN(void, DrawSetTextFont, struct hfont)
-DECL_VFUNC_DYN(void, DrawSetTextColor, struct con_colour)
+DECL_VFUNC_DYN(void, DrawSetTextColor, struct rgba_colour)
 DECL_VFUNC_DYN(void, DrawSetTextPos, int, int)
 DECL_VFUNC_DYN(void, DrawPrintText, ushort *, int, enum fontdrawtype)
 DECL_VFUNC_DYN(void, GetScreenSize, int *, int *)
@@ -104,14 +104,14 @@ struct hfont hud_getfont(const char *name, bool proportional) {
 	return GetFont(scheme, name, proportional);
 }
 
-void hud_drawrect(int x0, int y0, int x1, int y1, struct con_colour colour,
+void hud_drawrect(int x0, int y0, int x1, int y1, struct rgba_colour colour,
 		bool filled) {
 	DrawSetColor(mss, colour);
 	if (filled) DrawFilledRect(mss, x0, y0, x1, y1);
 	else DrawOutlinedRect(mss, x0, y0, x1, y1);
 }
 
-void hud_drawline(int x0, int y0, int x1, int y1, struct con_colour colour) {
+void hud_drawline(int x0, int y0, int x1, int y1, struct rgba_colour colour) {
 	DrawSetColor(mss, colour);
 	DrawLine(mss, x0, y0, x1, y1);
 }
@@ -120,7 +120,7 @@ void hud_drawpolyline(int *x, int *y, int num_points) {
 	DrawPolyLine(mss, x, y, num_points);
 }
 
-void hud_drawtext(struct hfont font, int x, int y, struct con_colour colour,
+void hud_drawtext(struct hfont font, int x, int y, struct rgba_colour colour,
 		ushort *str, size_t len) {
 	DrawSetTextFont(mss, font);
 	DrawSetTextPos(mss, x, y);

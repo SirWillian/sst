@@ -423,9 +423,9 @@ _( "	con_colourmsg(RGBA(64, 255, 64, 255),")
 _( "			LONGNAME \" v\" VERSION \" successfully loaded\");")
 _( "	con_colourmsg(RGBA(255, 255, 255, 255), \" for game \");")
 _( "	con_colourmsg(RGBA(0, 255, 255, 255), \"%s\\n\", gameinfo_title);")
-_( "	struct con_colour white = {255, 255, 255, 255};")
-_( "	struct con_colour green = {128, 255, 128, 255};")
-_( "	struct con_colour red   = {255, 128, 128, 255};")
+_( "	struct rgba_colour white = {255, 255, 255, 255};")
+_( "	struct rgba_colour green = {128, 255, 128, 255};")
+_( "	struct rgba_colour red   = {255, 128, 128, 255};")
 _( "	con_colourmsg(&white, \"---- List of plugin features ---\\n\");");
 	for (const struct feature *f = features_bydesc.x[0]; f;
 			f = f->hdr_bydesc.x[0]) {

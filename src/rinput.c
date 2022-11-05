@@ -94,9 +94,9 @@ INIT {
 		.lpszClassName = L"RInput"
 	};
 	if (!RegisterClassExW(&wc)) {
-		struct con_colour gold = {255, 210, 0, 255};
-		struct con_colour blue = {45, 190, 190, 255};
-		struct con_colour white = {200, 200, 200, 255};
+		struct rgba_colour gold = {255, 210, 0, 255};
+		struct rgba_colour blue = {45, 190, 190, 255};
+		struct rgba_colour white = {200, 200, 200, 255};
 		con_colourmsg(&gold, "SST PROTIP! ");
 		con_colourmsg(&blue, "It appears you're using RInput.exe.\n"
 				"Consider launching without that and using ");

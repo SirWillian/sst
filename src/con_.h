@@ -18,6 +18,7 @@
 #ifndef INC_CON_H
 #define INC_CON_H
 
+#include "engineapi.h"
 #include "intdefs.h"
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -36,15 +37,6 @@ struct con_cmdargs {
 	char argsbuf[CON_CMD_MAX_LENGTH];
 	char argvbuf[CON_CMD_MAX_LENGTH];
 	const char *argv[CON_CMD_MAX_ARGC];
-};
-
-/* an RGBA colour, passed to con_colourmsg */
-struct con_colour {
-	union {
-		struct { u8 r, g, b, a; };
-		u32 val;
-		uchar bytes[4];
-	};
 };
 
 #define CON_CMD_MAXCOMPLETE 64
@@ -197,7 +189,7 @@ void con_warn(const char *fmt, ...) _CON_PRINTF(1, 2) __asm__("Warning");
 #endif
 
 extern void *_con_iface;
-extern void (*_con_colourmsgf)(void *this, const struct con_colour *c,
+extern void (*_con_colourmsgf)(void *this, const struct rgba_colour *c,
 		const char *fmt, ...) _CON_PRINTF(3, 4);
 /*
  * This provides the same functionality as ConColorMsg which was removed from

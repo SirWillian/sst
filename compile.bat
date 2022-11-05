@@ -108,12 +108,12 @@ if "%dbg%"=="1" (
 :: get rid of another useless file (can we just not create this???)
 del .build\sst.lib
 
-%HOSTCC% -O2 -g -include test/test.h -o .build/bitbuf.test.exe test/bitbuf.test.c || exit /b
+%HOSTCC% -O2 -g -I.build/include -include test/test.h -o .build/bitbuf.test.exe test/bitbuf.test.c || exit /b
 .build\bitbuf.test.exe || exit /b
 :: special case: test must be 32-bit
-%HOSTCC% -m32 -O2 -g -ladvapi32 -include test/test.h -o .build/hook.test.exe test/hook.test.c || exit /b
+%HOSTCC% -m32 -O2 -g -I.build/include -ladvapi32 -include test/test.h -o .build/hook.test.exe test/hook.test.c || exit /b
 .build\hook.test.exe || exit /b
-%HOSTCC% -O2 -g -include test/test.h -o .build/kv.test.exe test/kv.test.c || exit /b
+%HOSTCC% -O2 -g -I.build/include -include test/test.h -o .build/kv.test.exe test/kv.test.c || exit /b
 .build\kv.test.exe || exit /b
 
 endlocal

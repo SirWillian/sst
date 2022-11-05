@@ -69,6 +69,15 @@ struct edict {
 	float freetime;
 };
 
+/* an RGBA colour, passed to con_colourmsg */
+struct rgba_colour {
+	union {
+		struct { u8 r, g, b, a; };
+		u32 val;
+		uchar bytes[4];
+	};
+};
+
 struct vec3f { float x, y, z; };
 struct CMoveData {
 	bool firstrun : 1, gamecodemoved : 1;
