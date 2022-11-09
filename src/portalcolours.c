@@ -16,6 +16,7 @@
 
 #include <string.h>
 
+#include "colour.h"
 #include "con_.h"
 #include "engineapi.h"
 #include "errmsg.h"
@@ -40,40 +41,9 @@ DEF_CVAR(sst_portal_colour1, "Crosshair colour for left portal (hex)",
 		"40A0FF", CON_ARCHIVE | CON_HIDDEN)
 DEF_CVAR(sst_portal_colour2, "Crosshair colour for right portal (hex)",
 		"FFA020", CON_ARCHIVE | CON_HIDDEN)
-// XXX: bit weird that this is still con_colour. should we move it back out to
-// engineapi as a general colour struct??
-static struct rgba_colour colours[3] = {
-		{242, 202, 167, 255}, {64, 160, 255, 255}, {255, 160, 32, 255}};
 
-static void hexparse(uchar out[static 4], const char *s) {
-	const char *p = s;
-	for (uchar *q = out; q - out < 3; ++q) {
-		if (*p >= '0' && *p <= '9') {
-			*q = *p++ - '0' << 4;
-		}
-		else if ((*p | 32) >= 'a' && (*p | 32) <= 'f') {
-			*q = 10 + (*p++ | 32) - 'a' << 4;
-		}
-		else {
-			// screw it, just fall back on white, I guess.
-			// note: this also handles *p == '\0' so we don't overrun the string
-			memset(out, 255, 4); // write 4 rather than 3, prolly faster?
-			return;
-		}
-		// repetitive unrolled nonsense
-		if (*p >= '0' && *p <= '9') {
-			*q |= *p++ - '0';
-		}
-		else if ((*p | 32) >= 'a' && (*p | 32) <= 'f') {
-			*q |= 10 + (*p++ | 32) - 'a';
-		}
-		else {
-			memset(out, 255, 4);
-			return;
-		}
-	}
-	//out[3] = 255; // never changes!
-}
+struct rgba_colour colours[3] = {
+		{242, 202, 167, 255}, {64, 160, 255, 255}, {255, 160, 32, 255}};
 
 static void colourcb(struct con_var *v) {
 	// this is stupid and ugly and has no friends, too bad!

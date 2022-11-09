@@ -52,6 +52,7 @@ src="\
 	ac.c
 	bind.c
 	crypto.c
+	colour.c
 	alias.c
 	autojump.c
 	con_.c

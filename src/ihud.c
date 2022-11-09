@@ -14,6 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "colour.h"
 #include "con_.h"
 #include "engineapi.h"
 #include "errmsg.h"
@@ -40,11 +41,11 @@ DECL_VFUNC_DYN(struct CUserCmd *, GetUserCmd, int)
 typedef void (*VCALLCONV CreateMove_func)(void *, int, float, bool);
 typedef void (*VCALLCONV DecodeUserCmdFromBuffer_func)(void *, void *, int);
 
-CreateMove_func orig_CreateMove;
-DecodeUserCmdFromBuffer_func orig_DecodeUserCmdFromBuffer;
-void *input = 0;
-struct hfont font;
-int buttons;
+static CreateMove_func orig_CreateMove;
+static DecodeUserCmdFromBuffer_func orig_DecodeUserCmdFromBuffer;
+static void *input = 0;
+static struct hfont font;
+static int buttons;
 
 struct key {
 	char x;
@@ -55,12 +56,8 @@ struct key {
 	enum incode button;
 };
 
-static int padding = 0;
-static int size = 40;
-static int corner = 3;
-static int layout = 0;
-static struct rgba_colour pressed = {128, 128, 128, 200};
 static struct rgba_colour unpressed = {0, 0, 0, 92};
+static struct rgba_colour pressed = {255, 255, 255, 200};
 // default layout
 static struct key layouts[1][10] = {
 	{
@@ -77,16 +74,36 @@ static struct key layouts[1][10] = {
 	},
 };
 
+DEF_CVAR(sst_ihud_colour_normal, "IHud key colour when not pressed (hex)",
+		"0000005C", CON_ARCHIVE | CON_HIDDEN)
+DEF_CVAR(sst_ihud_colour_pressed, "IHud key colour when pressed (hex)",
+		"FFFFFFC8", CON_ARCHIVE | CON_HIDDEN)
+DEF_CVAR(sst_ihud_gap, "IHud key gap (pixels)", 5, CON_ARCHIVE | CON_HIDDEN)
+DEF_CVAR(sst_ihud_keysize, "IHud key size (pixels)", 60, CON_ARCHIVE | CON_HIDDEN)
+
+// portalcolours.c:48
+static void colourcb(struct con_var *v) {
+	// this is stupid and ugly and has no friends, too bad!
+	if (v == sst_ihud_colour_normal) {
+		hexparse(unpressed.bytes, con_getvarstr(v));
+	}
+	else if (v == sst_ihud_colour_pressed) {
+		hexparse(pressed.bytes, con_getvarstr(v));
+	}
+}
+
 int w;
 int h;
 HANDLE_EVENT(HudPaint) {
 	hud_getscreensize(&w, &h);
-	for (struct key *k = layouts[layout]; k->button; k++) {
+	int gap = con_getvari(sst_ihud_gap);
+	int size = con_getvari(sst_ihud_keysize);
+	for (struct key *k = layouts[0]; k->button; k++) {
 		struct rgba_colour colour = buttons & k->button ? pressed : unpressed;
-		int x0 = size * k->x + padding * (k->x+1);
-		int y0 = h - size * (k->y+1) - padding * (k->y+1);
-		int x1 = x0 + size * k->w + padding * (k->w-1);
-		int y1 = y0 + size * k->h + padding * (k->h-1);
+		int x0 = size * k->x + gap * (k->x+1);
+		int y0 = h - size * (k->y+1) - gap * (k->y+1);
+		int x1 = x0 + size * k->w + gap * (k->w-1);
+		int y1 = y0 + size * k->h + gap * (k->h-1);
 		hud_drawrect(x0, y0, x1, y1, colour, true);
 		int tx = x1 - (x1 - x0) / 2 - hud_getcharwidth(font, k->ch) / 2;
 		int ty = y1 - (y1 - y0) / 2 - hud_getfonttall(font) / 2;
@@ -155,6 +172,13 @@ INIT {
 	orig_DecodeUserCmdFromBuffer = (DecodeUserCmdFromBuffer_func)hook_vtable(
 			vtable, vtidx_DecodeUserCmdFromBuffer,
 			(void *)hook_DecodeUserCmdFromBuffer);
+	// unhide cvars
+	sst_ihud_gap->base.flags &= ~CON_HIDDEN;
+	sst_ihud_keysize->base.flags &= ~CON_HIDDEN;
+	sst_ihud_colour_pressed->base.flags &= ~CON_HIDDEN;
+	sst_ihud_colour_pressed->cb = &colourcb;
+	sst_ihud_colour_normal->base.flags &= ~CON_HIDDEN;
+	sst_ihud_colour_normal->cb = &colourcb;
 	return true;
 }
 

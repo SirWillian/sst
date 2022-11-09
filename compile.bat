@@ -60,6 +60,7 @@ setlocal DisableDelayedExpansion
 :+ alias.c
 :+ autojump.c
 :+ con_.c
+:+ colour.c
 :+ democustom.c
 :+ demorec.c
 :+ engineapi.c
