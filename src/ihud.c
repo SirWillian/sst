@@ -35,43 +35,7 @@ REQUIRE_GAMEDATA(vtidx_VClient_DecodeUserCmdFromBuffer)
 REQUIRE_GLOBAL(factory_client)
 REQUIRE(hud)
 
-enum incode {
-	IN_NONE = 0,
-	IN_ATTACK = (1 << 0),
-	IN_JUMP = (1 << 1),
-	IN_DUCK = (1 << 2),
-	IN_FORWARD = (1 << 3),
-	IN_BACK = (1 << 4),
-	IN_USE = (1 << 5),
-	IN_CANCEL = (1 << 6),
-	IN_LEFT = (1 << 7),
-	IN_RIGHT = (1 << 8),
-	IN_MOVELEFT = (1 << 9),
-	IN_MOVERIGHT = (1 << 10),
-	IN_ATTACK2 = (1 << 11),
-};
-
-struct usercmd {
-	void **vtable;
-	int cmd;
-	int tick;
-	struct vec3f angles;
-	float fmove;
-	float smove;
-	float umove;
-	int buttons;
-	char impulse;
-	int weaponselect;
-	int weaponsubtype;
-	int random_seed;
-	short mousedx;
-	short mousedy;
-	// client only!!
-	bool predicted;
-	struct CUtlVector *entitygroundcontact;
-};
-
-DECL_VFUNC_DYN(struct usercmd *, GetUserCmd, int)
+DECL_VFUNC_DYN(struct CUserCmd *, GetUserCmd, int)
 
 typedef void (*VCALLCONV CreateMove_func)(void *, int, float, bool);
 typedef void (*VCALLCONV DecodeUserCmdFromBuffer_func)(void *, void *, int);
@@ -154,13 +118,13 @@ static inline bool find_input(void* vclient) {
 
 void VCALLCONV hook_CreateMove(void *this, int seq, float ft, bool active) {
 	orig_CreateMove(this, seq, ft, active);
-	struct usercmd *cmd = GetUserCmd(this, seq);
+	struct CUserCmd *cmd = GetUserCmd(this, seq);
 	if (cmd) buttons = cmd->buttons;
 }
 
 void VCALLCONV hook_DecodeUserCmdFromBuffer(void *this, void *reader, int seq) {
 	orig_DecodeUserCmdFromBuffer(this, reader, seq);
-	struct usercmd *cmd = GetUserCmd(this, seq);
+	struct CUserCmd *cmd = GetUserCmd(this, seq);
 	if (cmd) buttons = cmd->buttons;
 }
 

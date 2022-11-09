@@ -143,8 +143,8 @@ int hud_getcharwidth(struct hfont font, int ch) {
 struct hfont hud_createfont(const char *fontname, int tall, int weight,
 		int blur, int scanlines, int flags) {
 	struct hfont font = CreateFont(mss);
-	if (SetFontGlyphSet(mss, font, fontname, tall, weight, blur, scanlines, flags,
-			0, 0)) return font;
+	if (SetFontGlyphSet(mss, font, fontname, tall, weight, blur, scanlines,
+				flags, 0, 0)) return font;
 	return (struct hfont){0};
 }
 
@@ -154,7 +154,6 @@ void VCALLCONV hook_Paint(void *this) {
 	}
 	orig_Paint(this);
 }
-
 INIT {
 	mss = factory_engine("MatSystemSurface006", 0);
 	void *enginevgui = factory_engine("VEngineVGui001", 0);
