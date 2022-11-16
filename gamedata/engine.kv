@@ -32,9 +32,12 @@ vtidx_GetGameDirectory {
 	Client012 37 // dmomm, ep1, ...
 }
 vtidx_GetEngineBuildNumber {
-	L4D2 {
-		Client013 99
-		//Client014 ??? // TODO(compat): find out what this is (maybe 136?)
+	Client013 {
+		L4D 99
+		Portal1 91
+	}
+	Client014 {
+		L4D2 31
 	}
 }
 
@@ -54,7 +57,15 @@ sz_edict {
 }
 
 // VClient
-vtidx_VClient_DecodeUserCmdFromBuffer 22
+vtidx_VClient_DecodeUserCmdFromBuffer {
+	default 22
+	Client014 {
+		L4D2 43 // shoutouts to 2000
+	}
+	Client013 {
+		L4Dbased 23
+	}
+}
 
 // CInput
 vtidx_CreateMove 3
@@ -71,18 +82,60 @@ vtidx_DrawSetTextFont 17
 vtidx_DrawSetTextColor 18
 vtidx_DrawSetTextPos 20
 vtidx_DrawPrintText 22
-vtidx_GetScreenSize 37
-vtidx_CreateFont 64
-vtidx_SetFontGlyphSet 65
+vtidx_GetScreenSize {
+	default 37
+	L4D2_2147 35
+	TheLastStand 35
+}
+vtidx_CreateFont {
+	default 64
+	L4D2_2147 63
+	TheLastStand 63
+}
+vtidx_SetFontGlyphSet {
+	default 65
+	L4D2_2147 64
+	TheLastStand 64
+}
 vtidx_GetFontTall 67
 vtidx_GetCharacterWidth 71
 
 // CEngineVGui
-off_engineToolsPanel { OrangeBoxbased 140 }
+off_engineToolsPanel { 
+	default 140
+	Client013 {
+		L4D2 144 // 2045
+	}
+}
 
 // vgui::Panel
-vtidx_SetPaintEnabled 67
-vtidx_Paint 123
+vtidx_SetPaintEnabled {
+	default 67
+	Client013 {
+		L4D1 68
+		L4D2 {
+			default 71
+			L4D2_2147 72
+			TheLastStand 72
+		}
+	}
+	Client014 {
+		L4D2 70
+	}
+}
+vtidx_Paint {
+	default 123
+	Client014 {
+		L4D2 126 // 2000
+	}
+	Client013 {
+		L4D2 {
+			default 127 // 2045
+			L4D2_2147 128
+			TheLastStand 128
+		}
+	}
+}
 
 // ISchemeManager
 vtidx_GetScheme 5

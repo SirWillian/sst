@@ -1,5 +1,6 @@
 /*
  * Copyright © 2022 Matthew Wozniak <sirtomato999@gmail.com>
+ * Copyright © 2022 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,6 +42,9 @@ enum fontdrawtype {
 
 FEATURE("hud painting")
 REQUIRE_GLOBAL(factory_engine)
+
+// CEngineClient
+REQUIRE_GAMEDATA(vtidx_GetEngineBuildNumber)
 // ISurface
 REQUIRE_GAMEDATA(vtidx_DrawSetColor)
 REQUIRE_GAMEDATA(vtidx_DrawFilledRect)
@@ -84,6 +88,9 @@ DECL_VFUNC_DYN(int, GetFontTall, struct hfont)
 DECL_VFUNC_DYN(struct hfont, CreateFont)
 DECL_VFUNC_DYN(bool, SetFontGlyphSet, struct hfont, const char *, int, int,
 		int, int, int, int, int)
+#define vtidx_SetFontGlyphSet_3420 vtidx_SetFontGlyphSet
+DECL_VFUNC_DYN(bool, SetFontGlyphSet_3420, struct hfont,
+		const char *, int, int, int, int, int)
 DECL_VFUNC_DYN(int, GetCharacterWidth, struct hfont, int)
 // vgui::Panel
 DECL_VFUNC_DYN(void, SetPaintEnabled, bool)
@@ -92,6 +99,8 @@ DECL_VFUNC_DYN(struct hscheme, GetScheme, const char *)
 DECL_VFUNC_DYN(void*, GetIScheme, struct hscheme)
 // IScheme
 DECL_VFUNC_DYN(struct hfont, GetFont, const char *, bool)
+// CEngineClient
+DECL_VFUNC_DYN(int, GetEngineBuildNumber)
 
 static void *mss;
 
@@ -142,9 +151,18 @@ int hud_getcharwidth(struct hfont font, int ch) {
 
 struct hfont hud_createfont(const char *fontname, int tall, int weight,
 		int blur, int scanlines, int flags) {
+	bool set_glyph;
 	struct hfont font = CreateFont(mss);
-	if (SetFontGlyphSet(mss, font, fontname, tall, weight, blur, scanlines,
-				flags, 0, 0)) return font;
+	if (GetEngineBuildNumber(engclient) <= 37) {
+		set_glyph = SetFontGlyphSet_3420(mss, font, fontname, tall, weight,
+			blur, scanlines, flags);
+	}
+	else {
+		set_glyph = SetFontGlyphSet(mss, font, fontname, tall, weight, blur,
+			scanlines, flags, 0, 0xFF);
+	}
+	if (set_glyph)
+		return font;
 	return (struct hfont){0};
 }
 
