@@ -43,8 +43,6 @@ void *globalvars;
 
 DECL_VFUNC_DYN(void *, GetAllServerClasses)
 
-DECL_VFUNC(int, GetEngineBuildNumber_newl4d2, 99) // duping gamedata entry, yuck
-
 #include <entpropsinit.gen.h>
 
 // nasty terrible horrible globals for jumpstuff to use
@@ -134,14 +132,13 @@ bool engineapi_init(int pluginver) {
 		_gametype_tag |= _gametype_tag_Portal1;
 	}
 
-	// Ugly HACK: we want to call GetEngineBuildNumber to find out if we're on a
-	// Last Stand version (because they changed entity vtables for some reason),
-	// but that function also got moved in 2.0.4.1 which means we can't call it
-	// till gamedata is set up, so we have to have a bit of redundant logic here
-	// to bootstrap things.
-	if (GAMETYPE_MATCHES(L4D2) && GAMETYPE_MATCHES(Client013) &&
-			GetEngineBuildNumber_newl4d2(engclient) >= 2200) {
-		_gametype_tag |= _gametype_tag_TheLastStand;
+	if (GAMETYPE_MATCHES(L4D2)) {
+		if (con_findvar("director_cs_weapon_spawn_chance")) {
+			_gametype_tag |= _gametype_tag_TheLastStand;
+		}
+		else if (con_findvar("sv_zombie_touch_trigger_delay")) {
+			_gametype_tag |= _gametype_tag_L4D2_2147;
+		}
 	}
 
 	// need to do this now; ServerClass network table iteration requires
