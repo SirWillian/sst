@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../3p/mpack/core.h"
 #include "../intdefs.h"
 #include "../os.h"
 #include "cmeta.h"
@@ -94,10 +93,6 @@ static char *join_tokens(const Token *tok, const Token *end) {
   return buf;
 }
 // }}}
-
-#ifdef _WIN32
-#include "../3p/openbsd/asprintf.c" // missing from libc; plonked here for now
-#endif
 
 static void die1(const char *s) {
 	fprintf(stderr, "cmeta: fatal: %s\n", s);
@@ -424,34 +419,25 @@ void cmeta_evhandlermacros(const struct cmeta *cm, const char *modname,
 
 #define ALLOC_STRING(str, tp) ALLOC_STRING_LEN(str, tp, tp->len)
 
-void cmeta_msgmacros(const struct cmeta *cm,
-		void (*cb)(char *d, int dl, const char *n, const char *t,
-		struct vec_member *m)) {
+void cmeta_msgmacros(const struct cmeta *cm, void (*cb)(const char *msgname,
+		bool ismsg, bool dynlen, struct vec_member *msgmembers)) {
 	Token *tp = (Token *)cm;
 	struct vec_member members = {0};
 	struct msg_member curmember = {0};
-	Token *tokmsgstart;
-	char *msgname, *msgtype;
-	bool inobj = false, inarr = false, inmember = false;
-	int bracedepth = 0;
+	char *msgname;
+	bool inobj = false, inmember = false, msgdyn = false;
+	bool tmpmsg, ismsg, dyn, haskey;
+	int bracedepth = 0, typedepth = 0;
 	while (tp) {
-		if (equal(tp, "DEMO_MSG") && equal(tp->next, "(") || equal(tp, "DEMO_STRUCT")) {
-			bool hastype = equal(tp, "DEMO_MSG");
+		if ((tmpmsg = equal(tp, "DEMO_MSG")) || equal(tp, "DEMO_STRUCT")) {
+			ismsg = tmpmsg;
 			tp = tp->next->next;
-			if (hastype) {
-				ALLOC_STRING(msgtype, tp);
-				tp = tp->next->next->next; // skip over ") struct"
-			}
-			else {
-				ALLOC_STRING_LEN(msgtype, tp, 0); // empty string
-			}
 			ALLOC_STRING(msgname, tp);
-			tokmsgstart = tp;
+			tp = tp->next; // skip ')'
 			inobj = true;
 		}
-		else if ((equal(tp, "MSG_MEMBER") || equal(tp, "MSG_MEMBER_KEY")) &&
-				equal(tp->next, "(")) {
-			bool haskey = equal(tp, "MSG_MEMBER_KEY");
+		else if ((haskey = equal(tp, "MSG_MEMBER_KEY")) ||
+				equal(tp, "MSG_MEMBER")) {
 			curmember = (struct msg_member){0};
 			tp = tp->next->next;
 			ALLOC_STRING(curmember.name, tp);
@@ -460,64 +446,70 @@ void cmeta_msgmacros(const struct cmeta *cm,
 			if (len > sizeof(curmember.key) - 1)
 				len = sizeof(curmember.key) - 1;
 			COPY_TOKEN_STRING(curmember.key, tp, len);
-			inmember = true;
+			curmember.key_len = len;
+			inmember = true; haskey = false;
 		}
 		else if (equal(tp, "MSG_BOOLEAN")) {
-			if (inarr) curmember.item_type = MPACK_TOKEN_BOOLEAN;
-			else curmember.token_type = MPACK_TOKEN_BOOLEAN;
+			curmember.type_chain[typedepth++] = MSG_BOOLEAN;
 		}
 		else if (equal(tp, "MSG_INT")) {
-			if (inarr) curmember.item_type = MPACK_TOKEN_SINT;
-			else curmember.token_type = MPACK_TOKEN_SINT;
+			curmember.type_chain[typedepth++] = MSG_INT;
 		}
 		else if (equal(tp, "MSG_ULONG")) {
-			if (inarr) curmember.item_type = MPACK_TOKEN_UINT;
-			else curmember.token_type = MPACK_TOKEN_UINT;
+			curmember.type_chain[typedepth++] = MSG_ULONG;
 		}
-		else if (equal(tp, "MSG_STR") || equal(tp, "MSG_DYN_STR")) {
-			if (equal(tp, "MSG_DYN_STR")) curmember.deref++;
-			if (inarr) curmember.item_type = MPACK_TOKEN_STR;
-			else curmember.token_type = MPACK_TOKEN_STR;
+		else if (equal(tp, "MSG_FLOAT")) {
+			curmember.type_chain[typedepth++] = MSG_FLOAT;
 		}
-		else if (equal(tp, "MSG_ARRAY") || equal(tp, "MSG_DYN_ARRAY")) {
-			// arrays in arrays won't work but hopefully we won't need those
-			curmember.token_type = MPACK_TOKEN_ARRAY;
-			bool isdyn = equal(tp, "MSG_DYN_ARRAY");
-			tp = tp->next->next;
-			if (isdyn) {
-				curmember.deref++;
-				ALLOC_STRING(curmember.len_offset, tp);
+		else if (equal(tp, "MSG_DOUBLE")) {
+			curmember.type_chain[typedepth++] = MSG_DOUBLE;
+		}
+		else if ((dyn = equal(tp, "MSG_DYN_STR")) || equal(tp, "MSG_STR")) {
+			if (dyn) {
+				curmember.type_chain[typedepth] = MSG_DYN_STR;
 			}
 			else {
-				curmember.arr_len = atoi(tp->loc);
+				curmember.type_chain[typedepth] = MSG_STR;
+				tp = tp->next->next;
+				ALLOC_STRING(curmember.member_len[typedepth], tp);
 			}
-			inarr = true;
+			curmember.dynamic_len[typedepth++] = dyn;
+			msgdyn |= dyn;
+			dyn = false;
+		}
+		else if ((dyn = equal(tp, "MSG_DYN_ARRAY")) || equal(tp, "MSG_ARRAY")) {
+			tp = tp->next->next;
+			ALLOC_STRING(curmember.member_len[typedepth], tp);
+			curmember.has_dyn_array |= dyn;
+			curmember.type_chain[typedepth] = dyn ? MSG_DYN_ARRAY : MSG_ARRAY;
+			curmember.dynamic_len[typedepth++] = dyn;
+			msgdyn |= dyn;
+			dyn = false;
 		}
 		else if (equal(tp, "MSG_MAP")) {
-			if (inarr) curmember.item_type = MPACK_TOKEN_MAP;
-			else curmember.token_type = MPACK_TOKEN_MAP;
 			tp = tp->next->next;
 			if (equal(tp, "struct")) tp = tp->next;
-			ALLOC_STRING(curmember.members, tp);
-			curmember.members_offset = (tp->loc - tokmsgstart->loc);
+			ALLOC_STRING(curmember.map_type, tp);
+			curmember.type_chain[typedepth] = MSG_MAP;
+			curmember.dynamic_len[typedepth++] = true;
+			msgdyn = true;
 		}
 		else if (equal(tp, "MSG_PTR")) {
-			curmember.deref++;
+			curmember.type_chain[typedepth++] = MSG_PTR;
 		}
 		else if (inmember && equal(tp, ")")) {
-			inmember = false; inarr = false;
-			vec_push(&members, curmember);
+			curmember.type_depth = typedepth;
+			inmember = false; typedepth = 0;
+			if(!vec_push(&members, curmember)) die1("couldn't append to array");
 		}
 		else if (inobj) {
 			if (equal(tp, "{")) bracedepth++;
 			else if (equal(tp, "}")) bracedepth--;
 			if (bracedepth == 0) {
 				inobj = false;
-				int deflen = (tp->loc - tokmsgstart->loc) + tp->len;
-				char *msgdef;
-				ALLOC_STRING_LEN(msgdef, tokmsgstart, deflen);
-				cb(msgdef, deflen + 1, msgname, msgtype, &members);
+				cb(msgname, ismsg, msgdyn, &members);
 				members = (struct vec_member){0};
+				msgdyn = false;
 			}
 		}
 		tp = tp->next;

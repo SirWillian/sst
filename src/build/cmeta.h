@@ -85,16 +85,33 @@ void cmeta_evdefmacros(const struct cmeta *cm, void (*cb)(const char *name,
 void cmeta_evhandlermacros(const struct cmeta *cm, const char *modname,
 		void (*cb)(const char *evname, const char *modname));
 
+enum msg_types {
+	MSG_BOOLEAN = 1,
+	MSG_INT,
+	MSG_ULONG,
+	MSG_FLOAT,
+	MSG_DOUBLE,
+	MSG_STR,
+	MSG_DYN_STR,
+	MSG_MAP,
+	MSG_PTR,
+	MSG_ARRAY,
+	MSG_DYN_ARRAY,
+};
+
+#define MAXTYPES 7 // effectively, how many derefs are allowed per member
 struct msg_member {
 	const char* name;
-	const char* len_offset;
-	const char* members;
-	int members_offset;
+	const char* map_type;
 	char key[16];
-	int token_type;
-	int item_type;
-	int deref;
-	int arr_len;
+	u8 key_len : 4;
+	u8 type_depth : 3;
+	bool has_dyn_array : 1;
+	// AoS has better packing but maybe worse access pattern
+	// it probably fits in the cache anyway
+	u8 type_chain[MAXTYPES]; 
+	const char *member_len[MAXTYPES];
+	bool dynamic_len[MAXTYPES]; // len upper bound defined at comptime
 };
 struct vec_member VEC(struct msg_member);
 
@@ -102,9 +119,8 @@ struct vec_member VEC(struct msg_member);
  * Iterates through all demo custom messages declared using macros, passing
  * message metadata to a callback
  */ 
-void cmeta_msgmacros(const struct cmeta *cm, void (*cb)(char *msgdef,
-		int msgdeflen, const char *msgname, const char *msgtype,
-		struct vec_member *msgmembers));
+void cmeta_msgmacros(const struct cmeta *cm, void (*cb)(const char *msgname,
+		bool ismsg, bool dynlen, struct vec_member *msgmembers));
 #endif
 
 // vi: sw=4 ts=4 noet tw=80 cc=80

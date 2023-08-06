@@ -59,6 +59,8 @@ static void generalfixes(void) {
 	unhide("con_filter_text");
 	unhide("con_filter_text_out");
 
+	chcmdflags("achievement_status", CON_HIDDEN | CON_DEVONLY, 0);
+
 	// things that could conceivably cause issues with speedrun verification
 	// and/or pedantic following of rules; throw on cheat flag. this could be
 	// relaxed with the Eventual Fancy Demo Verification Stuff.

@@ -9,6 +9,7 @@ if not exist .build\ (
 	attrib +H .build
 )
 if not exist .build\include\ md .build\include
+if not exist .build\include\msg\ md .build\include\msg
 
 if "%CC%"=="" set CC=clang --target=i686-pc-windows-msvc -fuse-ld=lld
 if "%HOSTCC%"=="" set HOSTCC=clang -fuse-ld=lld
@@ -81,7 +82,7 @@ setlocal DisableDelayedExpansion
 :+ l4dmm.c
 :+ l4dreset.c
 :+ l4dwarp.c
-:+ mpack.c
+:+ msg.c
 :+ nomute.c
 :+ nosleep.c
 :+ portalcolours.c
@@ -92,7 +93,7 @@ setlocal DisableDelayedExpansion
 if "%dbg%"=="1" set src=%src% src/dbg.c
 if "%dbg%"=="1" set src=%src% src/udis86.c
 
-%HOSTCC% -municode %cflags% %warnings% -D_CRT_SECURE_NO_WARNINGS -include stdbool.h -ladvapi32 ^
+%HOSTCC% -municode -O2 -g3 %warnings% -D_CRT_SECURE_NO_WARNINGS -include stdbool.h -ladvapi32 ^
 -o .build/codegen.exe src/build/codegen.c src/build/cmeta.c || exit /b
 %HOSTCC% -municode -O2 %warnings% -D_CRT_SECURE_NO_WARNINGS -include stdbool.h ^
 -o .build/mkgamedata.exe src/build/mkgamedata.c src/kv.c || exit /b

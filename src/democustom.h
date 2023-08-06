@@ -1,5 +1,6 @@
 /*
  * Copyright © 2022 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2023 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,26 +25,45 @@
 void democustom_write(const void *buf, int len);
 #include <demomsg.gen.h>
 
-// enum demomsg_type {
-// 	// msg types go here
-// };
+enum demomsg_type {
+	_demomsg_hasstr,
+	_demomsg_test,
+};
 
-#define DEMO_MSG(type)
-#define DEMO_STRUCT // for structs only used inside other messages
-#define MSG_MEMBER(member, type, ...) type(member, __VA_ARGS__)
+#define EXP(x) x
+#define PARENS ()
+#define DEMO_MSG(type) struct type
+#define DEMO_STRUCT(type) struct type // for structs only used inside other messages
+// this determines MAXTYPES in cmeta
+#define MSG_MEMBER(member, type, ...) \
+    EXP(EXP(EXP(EXP(EXP(EXP(EXP(EXP(type PARENS (member, __VA_ARGS__)))))))))
 #define MSG_MEMBER_KEY(member, key, type, ...) MSG_MEMBER(member, type, __VA_ARGS__)
 
-// add types as needed
-// XXX: maybe fuse all number types together
-#define MSG_BOOLEAN(name) bool name
-#define MSG_INT(name) int name
-#define MSG_ULONG(name) unsigned long name
-#define MSG_STR(name, size) char name[size]
-#define MSG_DYN_STR(name) char *name
-#define MSG_ARRAY(name, size, type, ...) type(name, __VA_ARGS__)[size]
-#define MSG_DYN_ARRAY(name, size_member, type, ...) type(*name, __VA_ARGS__)
-#define MSG_MAP(name, type) type name
-#define MSG_PTR(name, type, ...) type(*name, __VA_ARGS__)
+#define _MSG_BOOLEAN(name) bool name
+#define _MSG_INT(name) int name
+#define _MSG_ULONG(name) unsigned long name
+#define _MSG_FLOAT(name) float name
+#define _MSG_DOUBLE(name) double name
+#define _MSG_STR(name, size) char name[size]
+#define _MSG_DYN_STR(name) char *name
+#define _MSG_MAP(name, type) type name
+#define _MSG_PTR(name, type, ...) type PARENS (*(name), __VA_ARGS__)
+#define _MSG_ARRAY(name, size, type, ...) \
+    type PARENS ((name)[size], __VA_ARGS__)
+#define _MSG_DYN_ARRAY(name, size_member, type, ...) \
+    type PARENS (*(name), __VA_ARGS__)
+
+#define MSG_BOOLEAN() _MSG_BOOLEAN
+#define MSG_INT() _MSG_INT
+#define MSG_ULONG() _MSG_ULONG
+#define MSG_FLOAT() _MSG_FLOAT
+#define MSG_DOUBLE() _MSG_DOUBLE
+#define MSG_STR() _MSG_STR
+#define MSG_DYN_STR() _MSG_DYN_STR
+#define MSG_MAP() _MSG_MAP
+#define MSG_PTR() _MSG_PTR
+#define MSG_ARRAY() _MSG_ARRAY
+#define MSG_DYN_ARRAY() _MSG_DYN_ARRAY
 
 #endif
 

@@ -28,13 +28,13 @@
 #include "crypto.h"
 #include "democustom.h"
 #include "demorec.h"
-#include "hook.h"
 #include "engineapi.h"
 #include "errmsg.h"
 #include "event.h"
 #include "feature.h"
 #include "gamedata.h"
 #include "gametype.h"
+#include "hook.h"
 #include "intdefs.h"
 #include "mem.h"
 #include "os.h"
@@ -48,7 +48,9 @@
 #include <werapi.h> // must be after Windows.h (via os.h)
 #endif
 
-FEATURE()
+#include "msg.h"
+
+FEATURE("ac")
 REQUIRE(bind)
 REQUIRE(democustom)
 REQUIRE_GAMEDATA(vtidx_GetDesktopResolution)
@@ -277,6 +279,79 @@ struct inputevent {
 DECL_VFUNC_DYN(void, GetDesktopResolution, int *, int *)
 DECL_VFUNC_DYN(void, DispatchAllStoredGameMessages)
 
+DEMO_STRUCT(balls) {
+	MSG_MEMBER(size, MSG_INT);
+	//MSG_MEMBER_KEY(has_hair, hh, MSG_BOOLEAN);
+	//MSG_MEMBER(hair_count, MSG_PTR, MSG_ULONG);
+	//MSG_MEMBER_KEY(nickname, n, MSG_STR, 12);
+};
+
+DEMO_MSG(test) {
+    MSG_MEMBER(compact, MSG_BOOLEAN);
+    MSG_MEMBER_KEY(schema, s, MSG_FLOAT);
+    MSG_MEMBER(arr, MSG_ARRAY, 3, MSG_ARRAY, 4, MSG_INT);
+    MSG_MEMBER(many, MSG_MAP, struct balls);
+    MSG_MEMBER(lots, MSG_PTR, MSG_MAP, struct balls);
+    MSG_MEMBER(penis, MSG_DYN_ARRAY, penis_length, MSG_ULONG);
+    int penis_length;
+    MSG_MEMBER_KEY(spheres, balls, MSG_PTR, MSG_DYN_ARRAY, ball_count, MSG_MAP, struct balls);
+    int ball_count;
+    MSG_MEMBER(myname, MSG_STR, 12);
+    MSG_MEMBER(juice, MSG_DYN_STR);
+};
+
+DEMO_MSG(hasstr) {
+    MSG_MEMBER(str, MSG_STR, 12);
+    MSG_MEMBER(dyn_str, MSG_DYN_STR);
+    MSG_MEMBER(ball, MSG_PTR, MSG_MAP, struct balls);
+};
+
+DEMO_STRUCT(cvarval) {
+	MSG_MEMBER_KEY(name, n, MSG_DYN_STR);
+	MSG_MEMBER_KEY(val, v, MSG_DYN_STR);
+};
+
+DEMO_STRUCT(aliasval) {
+	MSG_MEMBER_KEY(name, n, MSG_STR, 32);
+	MSG_MEMBER_KEY(val, v, MSG_DYN_STR);
+};
+
+DEMO_STRUCT(keybind) {
+	MSG_MEMBER_KEY(code, c, MSG_INT);
+	MSG_MEMBER_KEY(binding, b, MSG_DYN_STR);
+};
+
+DEMO_MSG(demostart) {
+	MSG_MEMBER(cvardiff, MSG_DYN_ARRAY, difflen, MSG_MAP, struct cvarval);
+	int difflen;
+	MSG_MEMBER_KEY(aliaslist, a, MSG_DYN_ARRAY, aliaslen, MSG_MAP, struct aliasval);
+	int aliaslen;
+	MSG_MEMBER_KEY(binds, b, MSG_DYN_ARRAY, bindlen, MSG_MAP, struct keybind);
+	int bindlen;
+};
+
+/*
+
+DemoStart {
+	cvarDiff/cv {
+		name/n	ssz
+		value/v	ssz
+	} [?]
+	aliasList/a {
+		name/n	ssz5 [32]
+		value/v	ssz
+	} [?]
+	keyBinds/b {
+		keycode/c	u16
+		binding/b	ssz
+	} [?]
+}
+
+*/
+
+#include <msg/hasstr.gen.h>
+#include <msg/test.gen.h>
+
 typedef void (*VCALLCONV DispatchInputEvent_func)(void *, struct inputevent *);
 static DispatchInputEvent_func orig_DispatchInputEvent;
 static void VCALLCONV hook_DispatchInputEvent(void *this,
@@ -296,6 +371,47 @@ static void VCALLCONV hook_DispatchInputEvent(void *this,
 			//			int idx = ev->type - BTNDOWN;
 			//			msg_putssz5(p++, desclen[idx]);
 			//			memcpy(p, desc[idx], desclen[idx]); p += desclen[idx];
+			char dyn[] = "nerposting";
+			// ulong hairs = 3;
+			// struct balls balltest = {
+			// 	.size = 2.3,
+			// 	.has_hair = true,
+			// 	.hair_count = &hairs,
+			// 	.nickname = "johnny"
+			// };
+			struct balls ball = {.size = 89};
+			struct balls *medical_condition = malloc(sizeof(struct balls) * 3);
+			medical_condition[0].size = 101;
+			medical_condition[1].size = 789;
+			medical_condition[2].size = 69;
+			unsigned long benis[] = {65, 858, 123, 4256};
+			char smelly[] = "fingor";
+			struct test test = {
+				.compact = false,
+				.schema = 3.1,
+				.arr = {{1,2,3,4},{5,6,7,8},{9,10,11,12}},
+				.many = {.size = 19},
+				.lots = &ball,
+				.penis = benis,
+				.penis_length = sizeof(*benis),
+				.spheres = &medical_condition,
+				.ball_count = 3,
+				.myname = "fingerprint",
+				.juice = smelly
+			};
+			// struct hasstr strtest = {
+			// 	.str = "sharona",
+			// 	.dyn_str = dyn,
+			// 	.ball = &balltest
+			// };
+			//democustom_write_hasstr(&strtest);
+			uchar buf[200];
+			//int msglen = _msg_write_hasstr(buf, &strtest);
+			int msglen = _msg_write_test(buf, &test);
+			con_msg("msglen: %d\n", msglen);
+			for(int i = 0; i < msglen; i++) con_msg("%02x ", buf[i]);
+			con_msg("\n");
+			break;
 	}
 	orig_DispatchInputEvent(this, ev);
 }

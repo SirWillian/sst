@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../3p/mpack/core.h"
 #include "../intdefs.h"
 #include "../os.h"
 #include "cmeta.h"
@@ -28,12 +27,20 @@
 
 #ifdef _WIN32
 #define fS "S"
+#include "../3p/openbsd/asprintf.c" // missing from libc; plonked here for now
 #else
 #define fS "s"
 #endif
 
 static void die(const char *s) {
 	fprintf(stderr, "codegen: fatal: %s\n", s);
+	exit(100);
+}
+
+static void die2(const char *s1, char *s2) {
+	fprintf(stderr, "codegen: ");
+	fprintf(stderr, s1, s2);
+	fprintf(stderr, "\n");
 	exit(100);
 }
 
@@ -125,7 +132,7 @@ dep:		struct feature *dep = skiplist_get_feature(&features, param);
 			if (!dep) {
 				fprintf(stderr, "codegen: error: feature `%s` tried to depend "
 						"on non-existent feature `%s`\n", f->modname, param);
-				exit(1); \
+				exit(1);
 			}
 			if (!vec_push(optional ? &f->wants : &f->needs, dep)) {
 				die("couldn't allocate memory");
@@ -200,27 +207,23 @@ static void onevhandler(const char *evname, const char *modname) {
 	if (!vec_push(&e->handlers, taggedptr)) die("couldn't allocate memory");
 }
 
-#define MAXMSG 65536 // arbitrary limit!
-static struct demomsg {
-	char *def;
-	int deflen;
+#define MAXDATA 32 // arbitrary limit!
+static struct dem_data {
 	const char *name;
-	const char *type;
 	struct vec_member msg_members;
-} msgs[MAXMSG] = {{0}};
-static int nmsgs;
+	bool ismsg, dynlen;
+} demdata[MAXDATA] = {{0}};
+static int ndem;
 
-static void onmsgdef(char *d, int dl, const char *n, const char *t,
-		struct vec_member *m) {
-	if (nmsgs == sizeof(msgs) / sizeof(*msgs)) {
+static void onmsgdef(const char *n, bool msg, bool dyn, struct vec_member *m) {
+	if (ndem == sizeof(demdata) / sizeof(*demdata)) {
 		fprintf(stderr, "codegen: out of space; make msgs bigger!\n");
 		exit(1);
 	}
-	msgs[nmsgs].def = d;
-	msgs[nmsgs].deflen = dl;
-	msgs[nmsgs].name = n;
-	msgs[nmsgs].type = t;
-	msgs[nmsgs++].msg_members = *m;
+	demdata[ndem].name = n;
+	demdata[ndem].ismsg = msg;
+	demdata[ndem].dynlen = dyn;
+	demdata[ndem++].msg_members = *m;
 }
 
 struct passinfo {
@@ -468,123 +471,243 @@ _( "}")
 	}
 }
 
-static char *mpack_type_names[] = {
-	"",
-	"MPACK_TOKEN_NIL",
-	"MPACK_TOKEN_BOOLEAN",
-	"MPACK_TOKEN_UINT",
-	"MPACK_TOKEN_SINT",
-	"MPACK_TOKEN_FLOAT",
-	"MPACK_TOKEN_CHUNK",
-	"MPACK_TOKEN_ARRAY",
-	"MPACK_TOKEN_MAP",
-	"MPACK_TOKEN_BIN",
-	"MPACK_TOKEN_STR",
-	"MPACK_TOKEN_EXT"
-};
+/**
+ * Steps to rewrite this:
+ * X Generate functions that do token pasting for numbers and fixed size strings (no alloc)
+ * X Store chain of macros per member
+ * X Generate functions that can write pointers
+ * X Store size information for arrays
+ * X Generate functions that can write arrays
+ * X Implement struct members
+ * X Handle DEMO_MSG vs DEMO_STRUCT
+ * - Implement length checking and allocations
+ *  X Just non-deref types (int, uint, float, double)
+ *  - Strings
+ *  - Arrays
+ *  - Maps
+ * - Decide how to handle nulls
+ * - Try to optimize which functions are called
+ */
 
-static void demomsg(FILE *out) {
-	for (const struct demomsg *p = msgs; p - msgs < nmsgs; ++p) {
-		if (*p->type)
-F( "void democustom_write_%s(void *msg);", p->name)
+
+// state variables shared between the demomsg functions below
+static int tabdepth = 0;
+static char tabs[MAXTYPES];
+static const u8 typesize[] = {0, 1, 9, 9, 5, 9, 5, 5, 5, 0, 5, 5};
+
+#define T(f, ...) F("%.*s" f, tabdepth, tabs, __VA_ARGS__)
+
+static inline void writetype(FILE *out, const struct msg_member *m,
+		const char *varname, const char *nextvar, int typedepth) {
+	switch(m->type_chain[typedepth]) {
+		case MSG_BOOLEAN:
+T( "	msg_putbool(buf++, %s);", varname) break;
+		case MSG_INT:
+T( "	buf += msg_puts(buf, %s);", varname) break;
+		case MSG_ULONG:
+T( " 	buf += msg_putu(buf, %s);", varname) break;
+		case MSG_FLOAT:
+T( " 	msg_putf(buf, %s); buf += 5;", varname) break;
+		case MSG_DOUBLE:
+T( " 	buf += msg_putd(buf, %s);", varname) break;
+		case MSG_STR:
+		case MSG_DYN_STR:
+T( "	int %s_len = strlen(%s);", m->key, varname)
+T( "	buf += msg_putssz(buf, %s_len);", m->key)
+T( "	memcpy(buf, %s, %s_len); buf += %s_len;", varname, m->key, m->key)
+			break;
+		case MSG_MAP:
+T( "	buf += _msg_write_%s(buf, &%s);", m->map_type, varname) break;
+		case MSG_PTR:
+T( "	typeof(*%s) %s = *%s;", varname, nextvar, varname) break;
+		case MSG_ARRAY: {
+			const char *size_str = m->member_len[typedepth];
+T( "	buf += msg_putasz(buf, %s);", size_str)
+T( "	for (typeof(&*%s) x = %s; x - %s < %s; x++) {", varname, varname,
+		varname, size_str)
+			bool arrnext = m->type_chain[typedepth+1] == MSG_ARRAY;
+T( "		typeof(%s*%s) %s = *x;", arrnext ? "&*" : "", varname, nextvar)
+			tabdepth++;
+		} break;
+		case MSG_DYN_ARRAY: {
+			const char *size_str, *memblen = m->member_len[typedepth];
+			if (asprintf((char **)&size_str, "msg->%s", memblen) == -1)
+				die("failed to allocate array size str");
+T( "	buf += msg_putasz(buf, %s);", size_str)
+T( "	for (typeof(%s) x = %s; x - %s < %s; x++) {", varname, varname,
+		varname, size_str)
+T( "		typeof(*%s) %s = *x;", varname, nextvar)
+			tabdepth++;
+		} break;
+		default:
+			fprintf(stderr, "codegen: failed to set type for msg member"
+				" %s (type %d)\n", m->name, typedepth);
+			exit(1);
 	}
 }
 
-static void demomsginit(FILE *out) {
-	// plop down a copy of the struct for sizeof/offsetof reasons
-	for (const struct demomsg *p = msgs; p - msgs < nmsgs; ++p) {
-F( "struct _demomsg_%s;", p->name) // forward declaration
+static inline void msgwrite(FILE *out, const struct dem_data *d) {
+F( "static int _msg_write_%s(unsigned char *buf, struct %s *msg) {",
+		d->name, d->name)
+_( "	unsigned char *start = buf;\n")
+	if (d->ismsg) {
+_( "	msg_putasz4(buf++, 2);")
+F( "	msg_puti7(buf++, _demomsg_%s);", d->name)
 	}
-	for (const struct demomsg *p = msgs; p - msgs < nmsgs; ++p) {
-		// make space for new names of the copied structs
-		// alloc max size out of simplicity
-		int prefixlen = sizeof("_demomsg_")-1;
-		int newlen = p->deflen + p->msg_members.sz * prefixlen;
-		char *def = realloc(p->def, newlen);
-		if (!def) die("couldn't allocate memory");
-		int moves = 0;
-		for (const struct msg_member *pp = p->msg_members.data +
-				p->msg_members.sz; pp - p->msg_members.data >= 0; --pp) {
-			if (pp->token_type == MPACK_TOKEN_MAP ||
-					pp->item_type == MPACK_TOKEN_MAP) {
-				char *structname = def + pp->members_offset;
-				int n = p->deflen - pp->members_offset + moves * prefixlen;
-				memmove(structname + prefixlen, structname, n);
-				memcpy(structname, "_demomsg_", prefixlen);
-				moves++;
-			}
+F( "	buf += msg_putmsz(buf, %u);", d->msg_members.sz)
+	for (const struct msg_member *m = d->msg_members.data;
+			m - d->msg_members.data < d->msg_members.sz; ++m) {
+F( "\n	msg_putssz5(buf++, %u);", m->key_len)
+F( "	memcpy(buf, \"%s\", %u); buf += %d;", m->key, m->key_len, m->key_len)
+		printf("%s", m->name);
+		for(int i=0; m->type_chain[i]!=0; i++) printf(" %d", m->type_chain[i]);
+		printf("\n");
+
+		char *varname, *nextvar;
+		if (asprintf(&varname, "msg->%s", m->name) == -1 ||
+				asprintf(&nextvar, "%s_0", m->key) == -1)
+			die("couldn't allocate variable name");
+		// unroll first iteration to handle variable name
+		writetype(out, m, varname, nextvar, 0);
+		sprintf(varname, "%s_/", m->key);
+		for(int typedepth = 1; typedepth < m->type_depth; typedepth++) {
+			varname[m->key_len + 1]++; nextvar[m->key_len + 1]++;
+			writetype(out, m, varname, nextvar, typedepth);
 		}
-F( "struct _demomsg_%s;", def)
-	}
-_( "#define M(type, member) (((type *)0)->member)")
-	for (const struct demomsg *p = msgs; p - msgs < nmsgs; ++p) {
-F( "static struct member_meta _PACKER_MEMBERS(%s)[] = {", p->name)
-		for (const struct msg_member *pp = p->msg_members.data;
-				pp - p->msg_members.data < p->msg_members.sz; ++pp) {
-_( "	{")
-F( "		.key=\"%s\",", pp->key)
-F( "		.token_type=%s,", mpack_type_names[pp->token_type])
-F( "		.offsetof=offsetof(struct _demomsg_%s, %s),", p->name, pp->name)
-			// technically type 6 (chunk) is in the middle of this
-			// but no struct member should be a chunk type
-			if (pp->token_type > MPACK_TOKEN_BOOLEAN &&
-					pp->token_type < MPACK_TOKEN_MAP) {
-				// if length is set then we need an extra deref
-				int sizederef = pp->deref + !!pp->arr_len;
-				char *deref = malloc(sizederef + 1);
-				for (int i = 0; i < sizederef; i++) deref[i] = '*';
-				deref[sizederef] = '\0';
-F( "		.size=sizeof(%sM(struct _demomsg_%s, %s)),",
-		deref, p->name, pp->name)
-			}
-			if (pp->token_type == MPACK_TOKEN_ARRAY) {
-F( "		.item_type=%s,", mpack_type_names[pp->item_type])
-				if (pp->arr_len) {
-F( "		.length=%d,", pp->arr_len)
-				}
-				else {
-F( "		.length_offsetof=offsetof(struct _demomsg_%s, %s),",
-		p->name, pp->len_offset)
-				}
-			}
-			if (pp->token_type == MPACK_TOKEN_MAP ||
-					pp->item_type == MPACK_TOKEN_MAP) {
-F( "		.member_count=_PACKER_COUNT(%s),", pp->members)
-F( "		.members=_PACKER_MEMBERS(%s),", pp->members)
-			}
-			if (pp->deref) {
-F( "		.deref=%d,", pp->deref)
-			}
-_( "	},")
+		while(tabdepth > 0) {
+			tabdepth--;
+T( "	}")
 		}
-_( "};")
 	}
-_( "")
-	// TODO: figure out the size required for serializing the struct
-	// democustom currently can't handle more than 253 bytes at a time but that
-	// should be fixed eventually
-	for (const struct demomsg *p = msgs; p - msgs < nmsgs; ++p) {
-		if (*p->type) {
-F( "void democustom_write_%s(void *msg) {", p->name)
-_( "	mpack_parser_t parser;")
-_( "	mpack_parser_init(&parser, 0);")
-_( "	u8 buf[1024];")
-_( "	char *b = (char *)buf;")
-_( "	size_t bl = sizeof(buf);")
-F( "	parser.data.p = &(MSG_PACKER(msg, %s, %s));", p->name, p->type)
-_( "	mpack_unparse(&parser, &b, &bl, struct_pack_enter, struct_pack_exit);")
-_( "	democustom_write((void *)buf, sizeof(buf)-bl);")
+_( "\n	return buf-start;")
 _( "}")
-		}
-	}
 }
+
+static inline void msglen(FILE *out, const struct dem_data *d) {
+F( "static int _msg_len_%s(struct %s *msg) {", d->name, d->name)
+	int fixedlen = 2*d->ismsg + 5; // (msg type + map) header
+	if (d->dynlen)
+_( "	int dynlen = 0;")
+	for (const struct msg_member *m = d->msg_members.data;
+			m - d->msg_members.data < d->msg_members.sz; ++m) {
+		char *varname, *nextvar;
+		bool finaltypedyn = m->dynamic_len[m->type_depth - 1];
+		if (finaltypedyn) {
+			if (asprintf(&varname, "%s_0", m->key) == -1 ||
+					asprintf(&nextvar, "%s_1", m->key) == -1)
+				die("couldn't allocate variable name");
+F(" 	typeof(msg->%s) %s = msg->%s;", m->name, varname, m->name)
+			int i = 0;
+			for (; i < m->type_depth - 1; i++) {
+				if (m->type_chain[i] == MSG_ARRAY) {
+T( "	for (typeof(*%s) %s = *%s; %s - *%s < %s; %s++) {", varname, nextvar,
+		varname, nextvar, varname, m->member_len[i], nextvar)
+					tabdepth++;
+				}
+				else if (m->type_chain[i] == MSG_DYN_ARRAY) {
+T( "	for (typeof(*%s) %s = *%s; %s - *%s < msg->%s; %s++) {", varname,
+		nextvar, varname, nextvar, varname, m->member_len[i], nextvar)
+					tabdepth++;
+				}
+				else /*if (m->type_chain[i] == MSG_PTR)*/ {
+T( "	typeof(*%s) %s = *%s;", varname, nextvar, varname)
+				}
+				varname[m->key_len + 1]++; nextvar[m->key_len + 1]++;
+			}
+			if (m->type_chain[i] == MSG_MAP) {
+T( "	dynlen += _msg_len_%s(%s);", m->map_type, varname)
+			}
+			else /* if (m->type_chain[i] == MSG_DYN_STR)*/ {
+T( "	dynlen += strlen(%s) + 5;", varname)
+			}
+			while(tabdepth > 0) {
+				tabdepth--;
+T( "	}")
+			}
+		}
+		else if (m->has_dyn_array) {
+			int parens = 0;
+			fprintf(out, "\tint %s_len = ", m->key);
+			for (int i = 0; i < m->type_depth - 1; i++) {
+				if (m->type_chain[i] != MSG_PTR) {
+					parens++;
+					if (m->type_chain[i] == MSG_DYN_ARRAY)
+						fprintf(out, "(5 + msg->%s * ", m->member_len[i]);
+					else /* if (m->type_chain[i] == MSG_ARRAY) */
+						fprintf(out, "(5 + %s * ", m->member_len[i]);
+				}
+				int valuelen = typesize[i];
+				if (m->type_chain[i] == MSG_STR)
+					valuelen += atoi(m->member_len[i]) - 1;
+				fprintf(out, "%d", valuelen);
+				while(parens--) fputc(')', out);
+				fputs(";\n", out);
+			}
+		}
+		else {
+			int i = m->type_depth - 1;
+			int valuelen = typesize[i];
+			// only relevant on the first iteration
+			if (m->type_chain[i] == MSG_STR)
+				valuelen += atoi(m->member_len[i]) - 1;
+			while (i--) {
+				if (m->type_chain[i] == MSG_ARRAY)
+					valuelen *= atoi(m->member_len[i]);
+				valuelen += typesize[i];
+			}
+			fixedlen += valuelen;
+		}
+		fixedlen += m->key_len + 1;
+		// u8 finaltype = m->type_chain[m->type_depth - 1];
+		// int valuelen = finaltype != MSG_STR ? typesize[finaltype] :
+		// 		atoi(m->member_len[m->type_depth - 1]) - 1 + 5;
+		// fixedlen += valuelen + m->key_len + 1;
+	}
+F( "	return %d%s;", fixedlen, d->dynlen ? " + dynlen" : "")
+_( "}")
+}
+#undef T
+
+#define _GENFILE(outfile, filepath, func, ...) \
+	outfile = fopen(filepath, "wb"); \
+	if (!outfile) die2("couldn't open %s", filepath); \
+	H() \
+	func(outfile, __VA_ARGS__); \
+	if (fclose(outfile) == EOF) die2("couldn't fully write %s", filepath)
 
 #define GENFILE(outfile, filename) \
-	outfile = fopen(".build/include/"#filename".gen.h", "wb"); \
-	if (!outfile) die("couldn't open "#filename".gen.h"); \
-	H() \
-	filename(outfile); \
-	if (fclose(outfile) == EOF) die("couldn't fully write "#filename".gen.h")
+	_GENFILE(outfile, ".build/include/"#filename".gen.h", filename)
+
+static void _customdata(FILE * out, const struct dem_data *d) {
+F( "#ifndef INC_MSG_%s_H", d->name)
+F( "#define INC_MSG_%s_H\n", d->name)
+	// include functions for members with map type
+	for (const struct msg_member *m = d->msg_members.data;
+			m - d->msg_members.data < d->msg_members.sz; ++m) {
+		// XXX: this will include the same file multiple times
+		// the include guards prevent this from failing spectacularly
+		if (m->type_chain[m->type_depth-1] == MSG_MAP) {
+F( "#include <msg/%s.gen.h>", m->map_type);
+		}
+	}
+
+	// forward declare the function that msglen will generate
+F( "static int _msg_len_%s(struct %s *msg);", d->name, d->name)
+	msgwrite(out, d);
+	//msglen(out, d);
+_( "\n#endif")
+}
+
+static void customdata(void) {
+	FILE *out;
+	char *outname;
+	memset(tabs, '\t', MAXTYPES);
+	for (const struct dem_data *d = demdata; d - demdata < ndem; ++d) {
+		if (asprintf(&outname, ".build/include/msg/%s.gen.h", d->name) == -1)
+			die("couldn't allocate file name");
+		_GENFILE(out, outname, _customdata, d);
+	}
+}
 
 int OS_MAIN(int argc, os_char *argv[]) {
 	for (++argv; *argv; ++argv) {
@@ -670,8 +793,7 @@ int OS_MAIN(int argc, os_char *argv[]) {
 	GENFILE(out, cmdinit);
 	GENFILE(out, featureinit);
 	GENFILE(out, evglue);
-	GENFILE(out, demomsg);
-	GENFILE(out, demomsginit);
+	customdata();
 
 	return 0;
 }
