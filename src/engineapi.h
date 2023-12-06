@@ -69,7 +69,12 @@ struct edict {
 	float freetime;
 };
 
-struct vec3f { float x, y, z; };
+struct vec3f { 
+	union {
+		struct { float x, y, z; };
+		float d[3];
+	};
+};
 
 /* an RGBA colour, used for colour console messages as well as VGUI/HUD stuff */
 struct rgba {

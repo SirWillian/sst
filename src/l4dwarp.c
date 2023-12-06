@@ -27,19 +27,41 @@
 #include "gametype.h"
 #include "intdefs.h"
 #include "mem.h"
+#include "trace.h"
 #include "vcall.h"
 #include "x86.h"
 #include "x86util.h"
 
 FEATURE("Left 4 Dead warp testing")
 REQUIRE(ent)
+REQUIRE(trace)
 REQUIRE_GAMEDATA(off_entpos)
 REQUIRE_GAMEDATA(off_eyeang)
 REQUIRE_GAMEDATA(off_entteam)
+REQUIRE_GAMEDATA(off_entcoll)
 REQUIRE_GAMEDATA(vtidx_Teleport)
 
 DECL_VFUNC_DYN(void, Teleport, const struct vec3f */*pos*/,
 		const struct vec3f */*pos*/, const struct vec3f */*vel*/)
+DECL_VFUNC(const struct vec3f *, OBBMaxs, 2)
+
+DECL_VFUNC_DYN(void, AddLineOverlay, const struct vec3f *,
+		const struct vec3f *, int, int, int, bool, float)
+DECL_VFUNC_DYN(void, AddBoxOverlay2, const struct vec3f *,
+		const struct vec3f *, const struct vec3f *, const struct vec3f *,
+		const struct rgba *, const struct rgba *, float)
+static const struct rgba
+		red_edge = {255, 0, 0, 100},
+		red_face = {255, 0, 0, 10},
+		light_red_edge = {255, 75, 75, 100},
+		light_red_face = {255, 75, 75, 10},
+		green_edge = {0, 255, 0, 100},
+		green_face = {0, 255, 0, 10},
+		light_green_edge = {75, 255, 75, 100},
+		light_green_face = {75, 255, 75, 10},
+		orange_line = {255, 100, 0, 255},
+		cyan_line = {0, 255, 255, 255};
+static const struct vec3f zero_qangle = {0, 0, 0};
 
 typedef bool (*EntityPlacementTest_L4D1_func)(void *, const struct vec3f *,
 		struct vec3f *, bool, uint, void *);
@@ -72,6 +94,98 @@ typedef void (*__thiscall CTraceFilterSimple_ctor)(struct filter_simple *this,
 // Trace mask for non-bot survivors. Constant in all L4D versions
 static const int player_mask = 0x0201420B;
 
+static void *dbgoverlay;
+
+static void draw_testpos(const struct vec3f *start, const struct vec3f *testpos,
+		const struct vec3f *mins, const struct vec3f *maxs) {
+	struct trace tr = {0};
+	trace_hull(testpos, testpos, mins, maxs, player_mask, &filter, &tr);
+	if (tr.frac != 1.0 || tr.allsolid || tr.startsolid) {
+		AddBoxOverlay2(dbgoverlay, testpos, mins, maxs, &zero_qangle,
+				&light_red_face, &light_red_edge, 1000.0);
+		return;
+	}
+	AddBoxOverlay2(dbgoverlay, testpos, mins, maxs, &zero_qangle,
+			&light_green_face, &light_green_edge, 1000.0);
+	trace_line(start, testpos, player_mask, &filter, &tr);
+	// current knowledge indicates that this should never happen, but it's good
+	// issue a warning if the code ever happens to be wrong
+	if (__builtin_expect(tr.frac == 1.0 && !tr.allsolid && !tr.startsolid, 0))
+		errmsg_warnx("false positive test position %.2f %.2f %.2f", testpos->x,
+			testpos->y, testpos->z);
+	AddLineOverlay(dbgoverlay, start, &tr.endpos, orange_line.r, orange_line.g,
+			orange_line.b, true, 1000.0);
+}
+
+static void draw_warp(const struct vec3f *in, const struct vec3f *out,
+		const struct vec3f *mins, const struct vec3f *maxs, bool success) {
+	const struct vec3f dims = {maxs->x - mins->x, maxs->y - mins->y,
+			maxs->z - mins->z};
+	int niter = 15, lastiter = 5;
+	for (int i = 0; i < 3; i++) {
+		if (in->d[i] != out->d[i]) {
+			// rounding to avoid floating point errors
+			niter = round(in->d[i] - out->d[i]) / dims.d[i];
+			lastiter = i*2;
+			// note: this should never happen, but on the off-chance the math
+			// above bugs, this works as a fail-safe
+			if (__builtin_expect(niter == 0, 0)) goto success;
+			// warped towards positive axis -> in < out -> niter < 0
+			if (niter < 0) {
+				lastiter++;
+				niter = -niter;
+			}
+			AddBoxOverlay2(dbgoverlay, in, mins, maxs, &zero_qangle,
+					&light_red_face, &light_red_edge, 1000.0);
+			goto do_iters;
+		}
+	}
+	// equal coords means that either 0 or max iterations were done
+	if (success) {
+success:
+		AddBoxOverlay2(dbgoverlay, in, mins, maxs, &zero_qangle, &green_face,
+				&green_edge, 1000.0);
+		return;
+	}
+	AddBoxOverlay2(dbgoverlay, in, mins, maxs, &zero_qangle, &red_face,
+			&red_edge, 1000.0);
+do_iters:
+	con_msg("Warp result: %d iterations, ", niter); // log part 1
+	struct vec3f offset = {0}, testpos = *in;
+	while (--niter) {
+		for (int d = 0; d < 3; d++) {
+			offset.d[d] += dims.d[d];
+			testpos.d[d] -= offset.d[d];
+			draw_testpos(in, &testpos, mins, maxs);
+			testpos.d[d] += 2*offset.d[d];
+			draw_testpos(in, &testpos, mins, maxs);
+			testpos.d[d] = in->d[d];
+		}
+	}
+	// handle last placement test iteration separately to stop on the right
+	// dimension and direction without checking each iteration
+	offset.x += dims.x; offset.y += dims.y; offset.z += dims.z;
+	int i, d;
+	for (i = 0, d = 0; i < lastiter; d += i & 1, i++) {
+		testpos.d[d] += (i & 1) ? offset.d[d] : -offset.d[d];
+		draw_testpos(in, &testpos, mins, maxs);
+		testpos.d[d] = in->d[d];
+	}
+	// do last box separately to handle colors and log part 2
+	testpos.d[d] += (i & 1) ? offset.d[d] : -offset.d[d];
+	if (success) {
+		AddBoxOverlay2(dbgoverlay, &testpos, mins, maxs, &zero_qangle,
+				&green_face, &green_edge, 1000.0);
+		AddLineOverlay(dbgoverlay, in, &testpos, cyan_line.r, cyan_line.g,
+				cyan_line.b, true, 1000.0);
+		con_msg("%c%c, not stuck\n", (i & 1) ? '+' : '-', 'x'+d);
+	}
+	else {
+		draw_testpos(in, &testpos, mins, maxs);
+		con_msg("stuck\n");
+	}
+}
+
 DEF_CCMD_HERE_UNREG(sst_l4d_testwarp, 
 		"Simulate a bot warping to you. This copies your crouching stance to "
 		"the simulated bot", CON_SERVERSIDE | CON_CHEAT) {
@@ -96,11 +210,18 @@ DEF_CCMD_HERE_UNREG(sst_l4d_testwarp,
 			org->y + shift * sin(yaw), org->z};
 	filter.pass_ent = e;
 	// TODO(autocomplete): suggest arguments on autocomplete
+	bool success = true;
 	if ((cmd->argc > 1 && !memcmp(cmd->argv[1], "nounstuck", 10)) ||
-			!EntityPlacementTest(e, &inpos, &outpos, false, player_mask,
-			(void *)&filter, 0.0))
+			!(success = EntityPlacementTest(e, &inpos, &outpos, false,
+			player_mask, (void *)&filter, 0.0)))
 		outpos = inpos;
-	Teleport(e, &outpos, 0, &(struct vec3f){0, 0, 0});
+	if (cmd->argc > 1 && !memcmp(cmd->argv[1], "drawtest", 9)) {
+		const struct vec3f *maxs = OBBMaxs(mem_offset(e, off_entcoll));
+		draw_warp(&inpos, &outpos, &(struct vec3f){-16, -16, 0}, maxs, success);
+	}
+	else {
+		Teleport(e, &outpos, 0, &(struct vec3f){0, 0, 0});
+	}
 }
 
 PREINIT {
@@ -146,6 +267,10 @@ static bool init_filter(void *EntityPlacementTest) {
 }
 
 INIT {
+	if (!(dbgoverlay = factory_engine("VDebugOverlay003", 0))) {
+		errmsg_warnx("no debug overlay");
+		return false;
+	}
 	struct con_cmd *z_add = con_findcmd("z_add");
 	void *func;
 	if (!z_add || !(func = find_EntityPlacementTest(z_add->cb))) {
