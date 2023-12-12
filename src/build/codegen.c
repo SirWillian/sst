@@ -1,5 +1,6 @@
 /*
  * Copyright © 2024 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2023 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +35,13 @@
 
 static void die(const char *s) {
 	fprintf(stderr, "codegen: fatal: %s\n", s);
+	exit(100);
+}
+
+static void die2(const char *s1, char *s2) {
+	fprintf(stderr, "codegen: ");
+	fprintf(stderr, s1, s2);
+	fprintf(stderr, "\n");
 	exit(100);
 }
 
@@ -125,7 +133,7 @@ dep:;		struct feature *dep = skiplist_get_feature(&features, param);
 			if (!dep) {
 				fprintf(stderr, "codegen: error: feature `%s` tried to depend "
 						"on non-existent feature `%s`\n", f->modname, param);
-				exit(1); \
+				exit(1);
 			}
 			if (!vec_push(optional ? &f->wants : &f->needs, dep)) {
 				die("couldn't allocate memory");
@@ -280,6 +288,181 @@ F( "	has_%s = status_%s == FEAT_OK;", f->modname, f->modname)
 	f->dfsstate = SEEN;
 }
 
+static void cmdinit(FILE *out) {
+	for (const struct conent *p = conents; p - conents < nconents; ++p) {
+F( "extern struct con_%s *%s;", p->isvar ? "var" : "cmd", p->name)
+	}
+_( "")
+_( "static void regcmds(void) {")
+	for (const struct conent *p = conents; p - conents < nconents; ++p) {
+		if (p->isvar) {
+F( "	initval(%s);", p->name)
+		}
+		if (!p->unreg) {
+F( "	con_reg(%s);", p->name)
+		}
+	}
+_( "}")
+_( "")
+_( "static void freevars(void) {")
+	for (const struct conent *p = conents; p - conents < nconents; ++p) {
+		if (p->isvar) {
+F( "	extfree(%s->strval);", p->name)
+		}
+	}
+_( "}")
+}
+
+static void featureinit(FILE *out) {
+	// XXX: I dunno whether this should just be defined in sst.c. It's sort of
+	// internal to the generated stuff hence tucking it away here, but that's at
+	// the cost of extra string-spaghettiness
+_( "enum {")
+_( "	FEAT_OK,")
+_( "	FEAT_REQFAIL,")
+_( "	FEAT_PREFAIL,")
+_( "	FEAT_NOGD,")
+_( "	FEAT_NOGLOBAL,")
+_( "	FEAT_FAIL")
+_( "};")
+_( "")
+_( "static const char *const featmsgs[] = {")
+_( "	\" [     OK!     ] %s\\n\",")
+_( "	\" [   skipped   ] %s (requires another feature)\\n\",")
+_( "	\" [   skipped   ] %s (not applicable or useful)\\n\",")
+_( "	\" [ unsupported ] %s (missing gamedata)\\n\",")
+_( "	\" [   FAILED!   ] %s (failed to access engine)\\n\",")
+_( "	\" [   FAILED!   ] %s (error in initialisation)\\n\"")
+_( "};")
+_( "")
+	for (struct feature *f = features.x[0]; f; f = f->hdr.x[0]) {
+		if (f->has_preinit) {
+F( "extern bool _feature_preinit_%s(void);", f->modname)
+		}
+F( "extern bool _feature_init_%s(void);", f->modname)
+		if (f->has_end) {
+F( "extern bool _feature_end_%s(void);", f->modname)
+		}
+		if (f->is_requested) {
+F( "bool has_%s = false;", f->modname)
+		}
+		else if (f->has_end || f->has_evhandlers) {
+F( "static bool has_%s = false;", f->modname)
+		}
+	}
+_( "")
+_( "static void initfeatures(void) {")
+	for (struct feature *f = features.x[0]; f; f = f->hdr.x[0]) featdfs(out, f);
+_( "")
+	// note: old success message is moved in here, to get the ordering right
+_( "	con_colourmsg(&(struct rgba){64, 255, 64, 255},")
+_( "			LONGNAME \" v\" VERSION \" successfully loaded\");")
+_( "	con_colourmsg(&(struct rgba){255, 255, 255, 255}, \" for game \");")
+_( "	con_colourmsg(&(struct rgba){0, 255, 255, 255}, \"%s\\n\", ")
+_( "		gameinfo_title);")
+_( "	struct rgba white = {255, 255, 255, 255};")
+_( "	struct rgba green = {128, 255, 128, 255};")
+_( "	struct rgba red   = {255, 128, 128, 255};")
+_( "	con_colourmsg(&white, \"---- List of plugin features ---\\n\");");
+	for (const struct feature *f = features_bydesc.x[0]; f;
+			f = f->hdr_bydesc.x[0]) {
+F( "	con_colourmsg(status_%s == FEAT_OK ? &green : &red,", f->modname)
+F( "			featmsgs[(int)status_%s], \"%s\");", f->modname, f->desc)
+	}
+_( "}")
+_( "")
+_( "static void endfeatures(void) {")
+	for (struct feature **pp = endstack.data + endstack.sz - 1;
+			pp - endstack.data >= 0; --pp) {
+		if ((*pp)->has_end) {
+F( "	if (has_%s) _feature_end_%s();", (*pp)->modname, (*pp)->modname)
+		}
+	}
+_( "}")
+_( "")
+}
+
+static void evglue(FILE *out) {
+	for (const struct event *e = events.x[0]; e; e = e->hdr.x[0]) {
+_( "")
+		// gotta break from the string emit macros for a sec in order to do the
+		// somewhat more complicated task sometimes referred to as a "for loop"
+		fprintf(out, "%s_%s(", e->name & 1 ? "bool CHECK" : "void EMIT",
+				(const char *)(e->name & ~1ull));
+		for (int n = 0; n < (int)e->nparams - 1; ++n) {
+			fprintf(out, "typeof(%s) a%d, ", e->params[n], n + 1);
+		}
+		if (e->nparams && strcmp(e->params[0], "void")) {
+			fprintf(out, "typeof(%s) a%d", e->params[e->nparams -  1],
+					e->nparams);
+		}
+		else {
+			// just unilaterally doing void for now. when we're fully on C23
+			// eventually we can unilaterally do nothing instead
+			fputs("void", out);
+		}
+_( ") {")
+		for (usize *pp = e->handlers.data;
+				pp - e->handlers.data < e->handlers.sz; ++pp) {
+			const char *modname = (const char *)(*pp & ~1ull);
+			fprintf(out, "\t%s _evhandler_%s_%s(", e->name & 1 ? "bool" : "void",
+					modname, (const char *)(e->name & ~1ull));
+			for (int n = 0; n < (int)e->nparams - 1; ++n) {
+				fprintf(out, "typeof(%s) a%d, ", e->params[n], n + 1);
+			}
+			if (e->nparams && strcmp(e->params[0], "void")) {
+				fprintf(out, "typeof(%s) a%d", e->params[e->nparams -  1],
+						e->nparams);
+			}
+			else {
+				fputs("void", out);
+			}
+			fputs(");\n\t", out);
+			// conditional and non-conditional cases - in theory could be
+			// unified a bit but this is easier to make output relatively pretty
+			// note: has_* variables are already included by this point (above)
+			if (e->name & 1) {
+				if (*pp & 1) fprintf(out, "if (has_%s && !", modname);
+				else fprintf(out, "if (!");
+				fprintf(out, "_evhandler_%s_%s(", modname,
+						(const char *)(e->name & ~1ull));
+				// XXX: much repetitive drivel here
+				for (int n = 0; n < (int)e->nparams - 1; ++n) {
+					fprintf(out, "a%d,", n + 1);
+				}
+				if (e->nparams && strcmp(e->params[0], "void")) {
+					fprintf(out, "a%d", e->nparams);
+				}
+				fputs(")) return false;\n", out);
+			}
+			else {
+				if (*pp & 1) fprintf(out, "if (has_%s) ", modname);
+				fprintf(out, "_evhandler_%s_%s(", modname,
+						(const char *)(e->name & ~1ull));
+				for (int n = 0; n < (int)e->nparams - 1; ++n) {
+					fprintf(out, "a%d,", n + 1);
+				}
+				if (e->nparams && strcmp(e->params[0], "void")) {
+					fprintf(out, "a%d", e->nparams);
+				}
+				fputs(");\n", out);
+			}
+		}
+		if (e->name & 1) fputs("\treturn true;\n", out);
+_( "}")
+	}
+}
+
+#define _GENFILE(outfile, filepath, func, ...) \
+	outfile = fopen(filepath, "wb"); \
+	if (!outfile) die2("couldn't open %s", filepath); \
+	H() \
+	func(outfile, __VA_ARGS__); \
+	if (fclose(outfile) == EOF) die2("couldn't fully write %s", filepath)
+
+#define GENFILE(outfile, filename) \
+	_GENFILE(outfile, ".build/include/"#filename".gen.h", filename)
+
 int OS_MAIN(int argc, os_char *argv[]) {
 	for (++argv; *argv; ++argv) {
 		const struct cmeta *cm = cmeta_loadfile(*argv);
@@ -360,176 +543,10 @@ int OS_MAIN(int argc, os_char *argv[]) {
 		cmeta_featinfomacros(f->cm, &onfeatinfo, f);
 	}
 
-	FILE *out = fopen(".build/include/cmdinit.gen.h", "wb");
-	if (!out) die("couldn't open cmdinit.gen.h");
-H();
-	for (const struct conent *p = conents; p - conents < nconents; ++p) {
-F( "extern struct con_%s *%s;", p->isvar ? "var" : "cmd", p->name)
-	}
-_( "")
-_( "static void regcmds(void) {")
-	for (const struct conent *p = conents; p - conents < nconents; ++p) {
-		if (p->isvar) {
-F( "	initval(%s);", p->name)
-		}
-		if (!p->unreg) {
-F( "	con_reg(%s);", p->name)
-		}
-	}
-_( "}")
-_( "")
-_( "static void freevars(void) {")
-	for (const struct conent *p = conents; p - conents < nconents; ++p) {
-		if (p->isvar) {
-F( "	extfree(%s->strval);", p->name)
-		}
-	}
-_( "}")
-	if (fclose(out) == EOF) die("couldn't fully write cmdinit.gen.h");
-
-	out = fopen(".build/include/featureinit.gen.h", "wb");
-	if (!out) die("couldn't open featureinit.gen.h");
-	H()
-	// XXX: I dunno whether this should just be defined in sst.c. It's sort of
-	// internal to the generated stuff hence tucking it away here, but that's at
-	// the cost of extra string-spaghettiness
-_( "enum {")
-_( "	FEAT_OK,")
-_( "	FEAT_REQFAIL,")
-_( "	FEAT_PREFAIL,")
-_( "	FEAT_NOGD,")
-_( "	FEAT_NOGLOBAL,")
-_( "	FEAT_FAIL")
-_( "};")
-_( "")
-_( "static const char *const featmsgs[] = {")
-_( "	\" [     OK!     ] %s\\n\",")
-_( "	\" [   skipped   ] %s (requires another feature)\\n\",")
-_( "	\" [   skipped   ] %s (not applicable or useful)\\n\",")
-_( "	\" [ unsupported ] %s (missing gamedata)\\n\",")
-_( "	\" [   FAILED!   ] %s (failed to access engine)\\n\",")
-_( "	\" [   FAILED!   ] %s (error in initialisation)\\n\"")
-_( "};")
-_( "")
-	for (struct feature *f = features.x[0]; f; f = f->hdr.x[0]) {
-		if (f->has_preinit) {
-F( "extern bool _feature_preinit_%s(void);", f->modname)
-		}
-F( "extern bool _feature_init_%s(void);", f->modname)
-		if (f->has_end) {
-F( "extern bool _feature_end_%s(void);", f->modname)
-		}
-		if (f->is_requested) {
-F( "bool has_%s = false;", f->modname)
-		}
-		else if (f->has_end || f->has_evhandlers) {
-F( "static bool has_%s = false;", f->modname)
-		}
-	}
-_( "")
-_( "static void initfeatures(void) {")
-	for (struct feature *f = features.x[0]; f; f = f->hdr.x[0]) featdfs(out, f);
-_( "")
-	// note: old success message is moved in here, to get the ordering right
-_( "	con_colourmsg(&(struct rgba){64, 255, 64, 255},")
-_( "			LONGNAME \" v\" VERSION \" successfully loaded\");")
-_( "	con_colourmsg(&(struct rgba){255, 255, 255, 255}, \" for game \");")
-_( "	con_colourmsg(&(struct rgba){0, 255, 255, 255}, \"%s\\n\", ")
-_( "		gameinfo_title);")
-_( "	struct rgba white = {255, 255, 255, 255};")
-_( "	struct rgba green = {128, 255, 128, 255};")
-_( "	struct rgba red   = {255, 128, 128, 255};")
-_( "	con_colourmsg(&white, \"---- List of plugin features ---\\n\");");
-	for (const struct feature *f = features_bydesc.x[0]; f;
-			f = f->hdr_bydesc.x[0]) {
-F( "	con_colourmsg(status_%s == FEAT_OK ? &green : &red,", f->modname)
-F( "			featmsgs[(int)status_%s], \"%s\");", f->modname, f->desc)
-	}
-_( "}")
-_( "")
-_( "static void endfeatures(void) {")
-	for (struct feature **pp = endstack.data + endstack.sz - 1;
-			pp - endstack.data >= 0; --pp) {
-		if ((*pp)->has_end) {
-F( "	if (has_%s) _feature_end_%s();", (*pp)->modname, (*pp)->modname)
-		}
-	}
-_( "}")
-_( "")
-	if (fclose(out) == EOF) die("couldn't fully write featureinit.gen.h");
-
-	out = fopen(".build/include/evglue.gen.h", "wb");
-	if (!out) die("couldn't open evglue.gen.h");
-	H_()
-	for (const struct event *e = events.x[0]; e; e = e->hdr.x[0]) {
-_( "")
-		// gotta break from the string emit macros for a sec in order to do the
-		// somewhat more complicated task sometimes referred to as a "for loop"
-		fprintf(out, "%s_%s(", e->name & 1 ? "bool CHECK" : "void EMIT",
-				(const char *)(e->name & ~1ull));
-		for (int n = 0; n < (int)e->nparams - 1; ++n) {
-			fprintf(out, "typeof(%s) a%d, ", e->params[n], n + 1);
-		}
-		if (e->nparams && strcmp(e->params[0], "void")) {
-			fprintf(out, "typeof(%s) a%d", e->params[e->nparams -  1],
-					e->nparams);
-		}
-		else {
-			// just unilaterally doing void for now. when we're fully on C23
-			// eventually we can unilaterally do nothing instead
-			fputs("void", out);
-		}
-_( ") {")
-		for (usize *pp = e->handlers.data;
-				pp - e->handlers.data < e->handlers.sz; ++pp) {
-			const char *modname = (const char *)(*pp & ~1ull);
-			fprintf(out, "\t%s _evhandler_%s_%s(", e->name & 1 ? "bool" : "void",
-					modname, (const char *)(e->name & ~1ull));
-			for (int n = 0; n < (int)e->nparams - 1; ++n) {
-				fprintf(out, "typeof(%s) a%d, ", e->params[n], n + 1);
-			}
-			if (e->nparams && strcmp(e->params[0], "void")) {
-				fprintf(out, "typeof(%s) a%d", e->params[e->nparams -  1],
-						e->nparams);
-			}
-			else {
-				fputs("void", out);
-			}
-			fputs(");\n\t", out);
-			// conditional and non-conditional cases - in theory could be
-			// unified a bit but this is easier to make output relatively pretty
-			// note: has_* variables are already included by this point (above)
-			if (e->name & 1) {
-				if (*pp & 1) fprintf(out, "if (has_%s && !", modname);
-				else fprintf(out, "if (!");
-				fprintf(out, "_evhandler_%s_%s(", modname,
-						(const char *)(e->name & ~1ull));
-				// XXX: much repetitive drivel here
-				for (int n = 0; n < (int)e->nparams - 1; ++n) {
-					fprintf(out, "a%d,", n + 1);
-				}
-				if (e->nparams && strcmp(e->params[0], "void")) {
-					fprintf(out, "a%d", e->nparams);
-				}
-				fputs(")) return false;\n", out);
-			}
-			else {
-				if (*pp & 1) fprintf(out, "if (has_%s) ", modname);
-				fprintf(out, "_evhandler_%s_%s(", modname,
-						(const char *)(e->name & ~1ull));
-				for (int n = 0; n < (int)e->nparams - 1; ++n) {
-					fprintf(out, "a%d,", n + 1);
-				}
-				if (e->nparams && strcmp(e->params[0], "void")) {
-					fprintf(out, "a%d", e->nparams);
-				}
-				fputs(");\n", out);
-			}
-		}
-		if (e->name & 1) fputs("\treturn true;\n", out);
-_( "}")
-	}
-	if (fclose(out) == EOF) die("couldn't fully write evglue.gen.h");
+	FILE *out;
+	GENFILE(out, cmdinit);
+	GENFILE(out, featureinit);
+	GENFILE(out, evglue);
 
 	return 0;
 }
