@@ -103,7 +103,7 @@ bool engineapi_init(int pluginver) {
 	}
 
 	gamedata_init();
-	con_init();
+	if (!con_init()) return false;
 	if (!gameinfo_init()) { con_disconnect(); return false; }
 	return true;
 }

@@ -1,5 +1,6 @@
 /*
  * Copyright © 2022 Michael Smith <mikesmiffy128@gmail.com>
+ * Copyright © 2023 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +23,12 @@
  * packets if too long. Assumes a demo is currently being recorded.
  */
 void democustom_write(const void *buf, int len);
+
+enum demomsg_type {
+	_demomsg_DemoStart,
+	_demomsg_hasstr,
+	_demomsg_test,
+};
 
 #endif
 
