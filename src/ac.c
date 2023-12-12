@@ -15,7 +15,10 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -32,16 +35,18 @@
 #include "crypto.h"
 #include "democustom.h"
 #include "demorec.h"
-#include "hook.h"
 #include "engineapi.h"
+#include "ent.h"
 #include "errmsg.h"
 #include "event.h"
 #include "feature.h"
 #include "gamedata.h"
 #include "gametype.h"
+#include "hook.h"
 #include "intdefs.h"
 #include "langext.h"
 #include "mem.h"
+#include "msgutil.h"
 #include "os.h"
 #include "ppmagic.h"
 #include "sst.h"
@@ -93,7 +98,142 @@ static void wipesessionkeys(void) {
 	crypto_wipe(keybox->prv, offsetof(struct keybox, rng));
 }
 
-HANDLE_EVENT(DemoRecordStarting, void) { if (enabled) newsessionkeys(); }
+// write a kv containing cvars altered from their default values that looks like
+// "cv": [{"n": "name", "d": "defaultval", "v": "currentval"}, ...]
+static void demostart_cvardiff_write(u8 **buf, u8 **head, int *sz) {
+	int arrlen = 0, keyoff = *head - *buf, free = *sz - (keyoff + 6);
+	u8 *h = *head + 6; // skip key and asz16 tokens
+	for (struct con_cmdbase *c = con_cmdhead; c; c = c->next) {
+		if (con_iscmd(c)) continue;
+
+		struct con_var *v = ((struct con_var *)c)->parent;
+		const char *defaultval = v->defaultval, *val = v->strval;
+		if (!strcmp(defaultval, val)) continue;
+
+		arrlen++;
+		int vallen = strlen(v->strval), namelen = strlen(c->name),
+				deflen = strlen(defaultval);
+		int buflen = 1 // msz4
+				+ 2 + (2 + namelen) // 'n' key + ssz8 value
+				+ 2 + (2 + deflen) // 'd' key + ssz8 value
+				+ 2 + (2 + vallen); // 'v' key + ssz8 value
+		// XXX: shrug? the run could be invalidated here
+		if (!msg_ensurebuf(buf, &h, sz, &free, buflen)) return;
+		uchar *mszstart = h;
+		msg_putmsz4(h++, 3);
+		msg_mk1v(h, 'n', ssz8, c->name, namelen);
+		msg_mk1v(h, 'd', ssz8, defaultval, deflen);
+		msg_mk1v(h, 'v', ssz8, val, vallen);
+		free -= (h - mszstart);
+	}
+	uchar *keystart = mem_offset(*buf, keyoff);
+	msg_putkey(keystart, "cv");
+	if (msg_putasz16(keystart, arrlen) != 3) {
+		memmove(keystart + 1, keystart + 3, (h - (keystart + 3)));
+		h -= 2;
+	}
+	*head = h;
+}
+
+// write a kv containing existing aliases that looks like
+// "a": [{"n": "name", "v": "currentval"}, ...]
+static void demostart_alias_write(u8 **buf, u8 **head, int *sz) {
+	int arrlen = 0, keyoff = *head - *buf, free = *sz - (keyoff + 7);
+	uchar *h = *head + 7; // skip key and asz tokens
+	for (struct alias *a = alias_head; a; a = a->next) {
+		arrlen++;
+		int namelen = strlen(a->name), vallen = strlen(a->value);
+		int buflen = 1 // msz4
+				+ 2 + (1 + namelen) // 'n' key + ssz5 value
+				+ 2 + (3 + vallen); // 'v' key + ssz16 value
+		// XXX: shrug? the run could be invalidated here
+		if (!msg_ensurebuf(buf, &h, sz, &free, buflen)) return;
+		uchar *mszstart = h;
+		msg_putmsz4(h++, 2);
+		msg_mk1v(h, 'n', ssz5, a->name, namelen);
+		msg_mk1v(h, 'v', ssz16, a->value, vallen);
+		free -= (h - mszstart);
+	}
+	uchar *keystart = mem_offset(*buf, keyoff);
+	msg_putssz5(keystart++, 1); *keystart++ = 'a'; // put key "a"
+	int toksz = msg_putasz(keystart, arrlen);
+	if (toksz != 5) {
+		memmove(keystart + toksz, keystart + 5, (h - (keystart + 5)));
+		h -= 5 - toksz;
+	}
+	*head = h;
+}
+
+// write a kv containing current binds that looks like
+// "b": [{"k": <key button code>, "b": "bind"}, ...]
+static void demostart_bind_write(u8 **buf, u8 **head, int *sz) {
+	int arrlen = 0, keyoff = *head - *buf, free = *sz - (keyoff + 5);
+	uchar *h = *head + 5; // skip key and asz tokens
+	for (int i = 0; i <= 162; i++) {
+		const char *bind = bind_get(i);
+		if (!bind) continue;
+		arrlen++;
+		int bindlen = strlen(bind);
+		int buflen = 1 // msz4
+				+ 2 + 2 // 'k' key + u8 value
+				+ 2 + (3 + bindlen); // 'b' key + ssz16 value
+		// XXX: shrug? the run could be invalidated here
+		if (!msg_ensurebuf(buf, &h, sz, &free, buflen)) return;
+		uchar *mszstart = h;
+		msg_putmsz4(h++, 2);
+		msg_mk1v(h, 'k', u8, i);
+		msg_mk1v(h, 'b', ssz16, bind, bindlen);
+		free -= (h - mszstart);
+	}
+	uchar *keystart = mem_offset(*buf, keyoff);
+	msg_putssz5(keystart++, 1); *keystart++ = 'b'; // put key "b"
+	if (msg_putasz16(keystart, arrlen) != 3) {
+		memmove(keystart + 1, keystart + 3, (h - (keystart + 3)));
+		h -= 2;
+	}
+	*head = h;
+}
+
+static void demostart_write(void) {
+	static u8 *buf = 0, *head;
+	static int sz = 1024;
+	if (!buf) {
+		buf = malloc(sz);
+		if (!buf) {
+			// XXX: shrug? the run is now invalid
+			return;
+		}
+	}
+	head = buf;
+	// begin writing a message looking like [int type (DemoStart), map with 3 keys]
+	msg_header(head, DemoStart, 3);
+	demostart_cvardiff_write(&buf, &head, &sz);
+	demostart_alias_write(&buf, &head, &sz);
+	demostart_bind_write(&buf, &head, &sz);
+	// TODO: encrypt and write to demo
+
+	int msglen = head - buf;
+	con_msg("bufsize %d msglen: %d\n", sz, msglen);
+	FILE *out = fopen("msg-demostart", "wb");
+	if (!out) return;
+	fwrite(buf, msglen, 1, out);
+	fclose(out);
+}
+
+static double get_time(void) {
+	LARGE_INTEGER t, f;
+	QueryPerformanceCounter(&t);
+    QueryPerformanceFrequency(&f);
+    return (double)t.QuadPart/(double)f.QuadPart;
+}
+
+HANDLE_EVENT(DemoRecordStarting, void) { 
+	if (enabled) newsessionkeys();
+	double start = get_time();
+	//for (int i = 10; i > 0; i--)
+	demostart_write();
+	con_msg("time %f\n", get_time() - start);
+}
 HANDLE_EVENT(DemoRecordStopped, int ndemos) { if (enabled) wipesessionkeys(); }
 
 #ifdef _WIN32

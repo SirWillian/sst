@@ -5,6 +5,8 @@ vtidx_AllocateDLLIdentifier 5
 	Portal2 8
 vtidx_RegisterConCommand 6
 	Portal2 9
+vtidx_UnregisterConCommand 7
+	Portal2 10
 vtidx_UnregisterConCommands 8
 	Portal2 11
 # unused:
@@ -21,6 +23,9 @@ vtidx_ConsoleColorPrintf
 	OrangeBoxbased 23
 	L4Dx 21
 	Portal2 24
+
+# ConCommandBase
+vtidx_IsCommand NVDTOR
 
 # CDemoRecorder
 vtidx_StartRecording 2

@@ -29,6 +29,8 @@
 #include "os.h"
 #include "vcall.h"
 #include "version.h"
+#include "x86.h"
+#include "x86util.h"
 
 /******************************************************************************\
  * Have you ever noticed that when someone comments "here be dragons" there's *
@@ -41,12 +43,15 @@
 static int dllid; // from AllocateDLLIdentifier(), lets us unregister in bulk
 int con_cmdclient;
 
+DECL_VFUNC_DYN(bool, IsCommand)
+
 DECL_VFUNC(void *, FindCommandBase_p2, 13, const char *)
 DECL_VFUNC(void *, FindCommand_nonp2, 14, const char *)
 DECL_VFUNC(void *, FindVar_nonp2, 12, const char *)
 
 DECL_VFUNC_DYN(int, AllocateDLLIdentifier)
 DECL_VFUNC_DYN(void, RegisterConCommand, /*ConCommandBase*/ void *)
+DECL_VFUNC_DYN(void, UnregisterConCommand, /*ConCommandBase*/ void *)
 DECL_VFUNC_DYN(void, UnregisterConCommands, int)
 DECL_VFUNC_DYN(struct con_var *, FindVar, const char *)
 // DECL_VFUNC(const struct con_var *, FindVar_const, 13, const char *)
@@ -63,6 +68,9 @@ typedef void (*ConsoleColorPrintf_func)(void *, const struct rgba *,
 // these have to be extern for con_colourmsg(), due to varargs nonsense
 void *_con_iface;
 ConsoleColorPrintf_func _con_colourmsgf;
+// the GetCommands interface function got removed in favor of some hash table
+// iterator nonsense, so we dig for the internal linked list head ourselves
+struct con_cmdbase **_con_cmdhead;
 
 static inline void initval(struct con_var *v) {
 	v->strval = extmalloc(v->strlen); // note: strlen is preset in _DEF_CVAR()
@@ -317,7 +325,43 @@ static int vtidx_SetValue_str = 2, vtidx_SetValue_f = 1, vtidx_SetValue_i = 0;
 enum { vtidx_SetValue_str = 0, vtidx_SetValue_f = 1, vtidx_SetValue_i = 2 };
 #endif
 
-void con_init(void) {
+static bool find_cmdlist(UnregisterConCommand_func unreg_func) {
+	const uchar *insns = (const uchar *)unreg_func;
+#ifdef _WIN32
+	const uchar *p = insns;
+	u8 new_this_reg;
+	while (p - insns < 16) {
+		// the "this" pointer gets moved from ECX to some other reg
+		// mov new_this_reg, ecx. mod == 11, r/m == 001
+		if (p[0] == X86_MOVRMW && (p[1] & 0xC7) == 0xC1) {
+			new_this_reg = (p[1] & 0x38) >> 3;
+			goto cmd2;
+		}
+		NEXT_INSN(p, "new register for CCvar \"this\" pointer");
+	}
+	return false;
+cmd2:
+	do {
+		NEXT_INSN(p, "offset to command list");
+		// later on, a local gets initialized with the cmd list
+		// mov reg, dword ptr [new_this_reg + off_cmdlist]
+		// mod == 01, r/m == new_this_reg
+		if (p[0] == X86_MOVRMW && (p[1] & 0xC7) == (0x40 | new_this_reg)) {
+			_con_cmdhead = mem_offset(_con_iface, p[2]);
+			return true;
+		}
+	} while (p - insns < 64);
+#else
+#warning TODO(linux): check whether linux is equivalent!
+#endif
+	return false;
+}
+
+bool con_init(void) {
+	if (!find_cmdlist(VFUNC(_con_iface, UnregisterConCommand))) {
+		errmsg_warnx("couldn't find command list");
+		return false;
+	}
 	_con_colourmsgf = VFUNC(_con_iface, ConsoleColorPrintf);
 	dllid = AllocateDLLIdentifier(_con_iface);
 
@@ -386,6 +430,7 @@ void con_init(void) {
 	*pi++ = (void *)&GetSplitScreenPlayerSlot;
 
 	regcmds();
+	return true;
 }
 
 static void helpuserhelpus(int pluginver, char ifaceverchar) {
@@ -461,6 +506,10 @@ bool con_detect(int pluginver) {
 void con_disconnect(void) {
 	UnregisterConCommands(_con_iface, dllid);
 	freevars();
+}
+
+bool con_iscmd(const struct con_cmdbase *c) {
+	return IsCommand((void *)c);
 }
 
 struct con_var *con_findvar(const char *name) {

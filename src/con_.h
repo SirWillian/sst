@@ -81,7 +81,7 @@ typedef int (*con_complcb)(const char *part,
 
 /* These are called on plugin load/unload. They should not be used elsewhere. */
 bool con_detect(int pluginver);
-void con_init(void);
+bool con_init(void);
 void con_disconnect(void);
 
 /*
@@ -138,6 +138,12 @@ struct con_var { // ConVar in engine
 /* The change callback used in most branches of Source. Takes an IConVar :) */
 typedef void (*con_varcb)(void *v, const char *, float);
 
+/* 
+ * This function distinguishes commands between ConVars and ConCommands. The
+ * only way to do so is via a virtual call, abstracted by this function.
+ */
+bool con_iscmd(const struct con_cmdbase *c);
+
 /*
  * These functions get and set the values of console variables in a
  * neatly-abstracted manner. Note: cvar values are always strings internally -
@@ -184,6 +190,8 @@ struct rgba; // in engineapi.h - forward declare here to avoid warnings
 extern void *_con_iface;
 extern void (*_con_colourmsgf)(void *this, const struct rgba *c,
 		const char *fmt, ...) _CON_PRINTF(3, 4);
+extern struct con_cmdbase **_con_cmdhead;
+#define con_cmdhead (*_con_cmdhead)
 /*
  * This provides the same functionality as ConColorMsg which was removed from
  * tier0 in the L4D engine branch - specifically, it allows printing a message
