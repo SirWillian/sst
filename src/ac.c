@@ -1,6 +1,6 @@
 /*
  * Copyright © 2024 Michael Smith <mikesmiffy128@gmail.com>
- * Copyright © 2023 Willian Henrique <wsimanbrazil@yahoo.com.br>
+ * Copyright © 2025 Willian Henrique <wsimanbrazil@yahoo.com.br>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,9 +61,9 @@ static bool enabled = false;
 // mild overkill: 1 page of memory that won't be coredumped or swapped to disk
 static struct keybox {
 	union { uchar prv[32], shr[32]; };
-	uchar tmp[32], pub[32], lbpub[32]; // NOTE: these 3 must be kept contiguous!
 	union { u64 nonce; uchar nonce_bytes[8]; };
-	crypto_rng_ctx rng; // NOTE: keep this at the end, for wipesessionkeys()
+	uchar tmp[32], pub[32], lbpub[32]; // NOTE: these 3 must be kept contiguous!
+	crypto_rng_ctx rng; // and keep lbpub at the end, for wipesessionkeys()
 } *keybox;
 
 enum {
@@ -84,13 +84,13 @@ static void newsessionkeys(void) {
 	// dumbest, safest possible key derivation, because I'm not a cryptographer.
 	// future versions of the custom demo protocol COULD get something faster
 	// (like something with hchacha20, if only I could find enough info on that)
-	crypto_blake2b(keybox->shr, sizeof(keybox->tmp), keybox->tmp, 96);
+	crypto_blake2b(keybox->shr, sizeof(keybox->shr), keybox->tmp, 96);
 	crypto_wipe(keybox->tmp, sizeof(keybox->tmp));
 	keybox->nonce = 0;
 }
 
 static void wipesessionkeys(void) {
-	crypto_wipe(keybox->prv, offsetof(struct keybox, rng));
+	crypto_wipe(keybox->prv, offsetof(struct keybox, lbpub));
 }
 
 HANDLE_EVENT(DemoRecordStarting, void) { if (enabled) newsessionkeys(); }
@@ -395,7 +395,7 @@ INIT {
 	keybox = VirtualAlloc(0, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	if_cold (!keybox) {
 		errmsg_errorsys("couldn't allocate memory for session state");
-		return false;
+		goto e;
 	}
 	if_cold (!VirtualLock(keybox, 4096)) {
 		errmsg_errorsys("couldn't secure session state");
@@ -406,12 +406,12 @@ INIT {
 		errmsg_errorx("couldn't secure session state");
 		goto e2;
 	}
-	if_cold (!win32_init()) goto e;
+	if_cold (!win32_init()) goto e3;
 #else
 	keybox = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
 	if_cold (keybox == MAP_FAILED) {
 		errmsg_errorstd("couldn't allocate memory for session state");
-		return false;
+		goto e;
 	}
 	// linux-specific madvise stuff (there are some equivalents in OpenBSD and
 	// FreeBSD, if anyone's wondering, but we don't need to worry about those)
@@ -419,7 +419,7 @@ INIT {
 			madvise(keybox, 4096, MADV_DONTDUMP) == - 1 ||
 			mlock(keybox, 4096) == -1) {
 		errmsg_errorstd("couldn't secure session state");
-		goto e;
+		goto e2;
 	}
 	// TODO(linux): call other init things
 #endif
@@ -435,12 +435,12 @@ INIT {
 	return true;
 
 #ifdef _WIN32
-e:	WerUnregisterExcludedMemoryBlock(keybox); // this'd better not fail!
+e3:	WerUnregisterExcludedMemoryBlock(keybox); // this'd better not fail!
 e2:	VirtualFree(keybox, 4096, MEM_RELEASE);
 #else
-e:	munmap(keybox, 4096);
+e2:	munmap(keybox, 4096);
 #endif
-	unhook_inline((void *)orig_Key_Event);
+e:	unhook_inline((void *)orig_Key_Event);
 	return false;
 }
 
