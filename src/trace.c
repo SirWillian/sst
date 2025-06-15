@@ -18,6 +18,7 @@
 #include "engineapi.h"
 #include "errmsg.h"
 #include "feature.h"
+#include "gamedata.h"
 #include "gametype.h"
 #include "intdefs.h"
 #include "trace.h"
@@ -25,20 +26,28 @@
 
 FEATURE()
 // TODO(compat): limiting to tested branches for now; support others as needed
-GAMESPECIFIC(L4D)
+REQUIRE_GAMEDATA(vtidx_TraceRay)
+REQUIRE_GAMEDATA(vtidx_PointOutsideWorld)
 
 struct ray {
 	// these have type VectorAligned in the engine, which occupies 16 bytes
 	struct vec3f _Alignas(16) start, delta, startoff, extents;
 	// align to 16 since "extents" is supposed to occupy 16 bytes.
-	// TODO(compat): this member isn't in every engine branch
-	const float _Alignas(16) (*worldaxistransform)[3][4];
-	bool isray, isswept;
+	union {
+		struct { bool isray, isswept; } v1;
+		struct {
+			const float _Alignas(16) (*worldaxistransform)[3][4];
+			struct { bool isray, isswept; } v2;
+		};
+	};
+	
 };
 
 static struct IEngineTraceServer *srvtrace;
-DECL_VFUNC(struct IEngineTraceServer, void, TraceRay, 5,
+DECL_VFUNC_DYN(struct IEngineTraceServer, void, TraceRay,
 		struct ray *, uint /*mask*/, void */*filter*/, struct CGameTrace *)
+DECL_VFUNC_DYN(struct IEngineTraceServer, bool, PointOutsideWorld,
+		const struct vec3f *)
 
 static inline bool nonzero(struct vec3f v) {
 	union { struct vec3f v; struct { unsigned int x, y, z; }; } u = {v};
@@ -50,11 +59,17 @@ struct CGameTrace trace_line(struct vec3f start, struct vec3f end, uint mask,
 	struct CGameTrace t;
 	struct vec3f delta = {end.x - start.x, end.y - start.y, end.z - start.z};
 	struct ray r = {
-		.isray = true,
-		.isswept = nonzero(delta),
 		.start = start,
 		.delta = delta
 	};
+	if (GAMETYPE_MATCHES(L4D)) {
+		r.v2.isray = true;
+		r.v2.isswept = nonzero(delta);
+	}
+	else {
+		r.v1.isray = true;
+		r.v1.isswept = nonzero(delta);
+	}
 	TraceRay(srvtrace, &r, mask, filt, &t);
 	return t;
 }
@@ -69,11 +84,6 @@ struct CGameTrace trace_hull(struct vec3f start, struct vec3f end,
 		(maxs.z - mins.z) * 0.5f
 	};
 	struct ray r = {
-		// NOTE: could maybe hardcode this to false, but we copy engine logic
-		// just on the off chance we're tracing some insanely thin hull
-		.isray = (extents.x * extents.x + r.extents.y * r.extents.y +
-				extents.z * extents.z) < 1e-6,
-		.isswept = nonzero(delta),
 		.start = start,
 		.delta = delta,
 		.extents = extents,
@@ -83,8 +93,24 @@ struct CGameTrace trace_hull(struct vec3f start, struct vec3f end,
 			(mins.z + maxs.z) * -0.5f
 		}
 	};
+	if (GAMETYPE_MATCHES(L4D)) {
+		// NOTE: could maybe hardcode this to false, but we copy engine logic
+		// just on the off chance we're tracing some insanely thin hull
+		r.v2.isray = (extents.x * extents.x + r.extents.y * r.extents.y +
+			extents.z * extents.z) < 1e-6;
+		r.v2.isswept = nonzero(delta);
+	}
+	else {
+		r.v1.isray = (extents.x * extents.x + r.extents.y * r.extents.y +
+			extents.z * extents.z) < 1e-6;
+		r.v1.isswept = nonzero(delta);
+	}
 	TraceRay(srvtrace, &r, mask, filt, &t);
 	return t;
+}
+
+bool trace_ispointoob(const struct vec3f *point) {
+	return PointOutsideWorld(srvtrace, point);
 }
 
 INIT {

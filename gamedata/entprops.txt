@@ -6,5 +6,9 @@ off_entpos CBaseEntity/m_vecOrigin
 off_eyeang CCSPlayer/m_angEyeAngles[0]
 off_teamnum CBaseEntity/m_iTeamNum
 off_collision CBaseEntity/m_Collision
+off_mins CBaseEntity/m_Collision/m_vecMins
+off_maxs CBaseEntity/m_Collision/m_vecMaxs
+off_solidtype CBaseEntity/m_Collision/m_nSolidType
+off_solidflags CBaseEntity/m_Collision/m_usSolidFlags
 
 # vi: sw=4 ts=4 noet tw=80 cc=80

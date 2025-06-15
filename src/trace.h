@@ -55,6 +55,11 @@ struct CGameTrace trace_line(struct vec3f start, struct vec3f end, uint mask,
 struct CGameTrace trace_hull(struct vec3f start, struct vec3f end,
 		struct vec3f mins, struct vec3f maxs, uint mask, void *filt);
 
+// Returns whether the engine considers the given point is outside the world or
+// not. The engine treats the inside of brushes as outside the world, which
+// differs from most definitions of "out of bounds" that speedgames use.
+bool trace_ispointoob(const struct vec3f *point);
+
 #endif
 
 // vi: sw=4 ts=4 noet tw=80 cc=80

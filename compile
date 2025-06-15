@@ -82,6 +82,7 @@ src="\
 	l4dreset.c
 	l4dwarp.c
 	nosleep.c
+	oobents.c
 	os.c
 	portalcolours.c
 	sst.c

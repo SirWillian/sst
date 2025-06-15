@@ -86,10 +86,10 @@ bool engineapi_init(int pluginver) {
 	vgui = factory_engine("VEngineVGui001", 0);
 
 	// TODO(compat): add this back when there's gamedata for 009 (no point atm)
-	/*if (srvdll = factory_server("ServerGameDLL009", 0)) {
+	if (srvdll = factory_server("ServerGameDLL009", 0)) {
 		_gametype_tag |= _gametype_tag_SrvDLL009;
-	}*/
-	if (srvdll = factory_server("ServerGameDLL005", 0)) {
+	}
+	else if (srvdll = factory_server("ServerGameDLL005", 0)) {
 		_gametype_tag |= _gametype_tag_SrvDLL005;
 	}
 

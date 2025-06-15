@@ -104,7 +104,7 @@ sz_SendProp
 		L4D1		80
 		L4D2		84
 		Portal2		84
-	#2013 80 # TODO(compat): not sure about 2013/009 yet
+	2013 80 # TODO(compat): not sure about 2013/009 yet
 off_SP_type 8
 off_SP_varname
 	SrvDLL005
@@ -113,24 +113,25 @@ off_SP_varname
 		# for now do this instead:
 		L4D			48
 		Portal2		48
-	#2013 48 # TODO(compat): not sure about 2013/009 yet pt2
+	2013 48 # TODO(compat): not sure about 2013/009 yet pt2
 off_SP_subtable
 	SrvDLL005
 		OrangeBox	64
 		L4D1		68
 		L4D2		72
 		Portal2		72
-	#2013 68 # TODO(compat): not sure about 2013/009 yet pt3
+	2013 68 # TODO(compat): not sure about 2013/009 yet pt3
 off_SP_offset
 	SrvDLL005
 		OrangeBox	68
 		L4D1		72
 		L4D2		76
 		Portal2		76
-	#2013 72 # TODO(compat): not sure about 2013/009 yet pt4
+	2013 72 # TODO(compat): not sure about 2013/009 yet pt4
 
 DPT_DataTable 5 # constant value from SendPropType enum (XXX: name okay???)
 	L4Dbased 6
+	2013 6
 
 # CBaseServer/CGameServer
 vtidx_GetSpawnCount
@@ -164,6 +165,25 @@ vtidx_HostFrameTime 35
 	# OE, DMoMM 25
 	L4D2 38
 	Portal2 39
+
+# ICollideable
+# vtidx_OBBMaxs # only used in l4dwarp. can be kept as a constant there for now
+#	L4D 2
+#	2013 4
+vtidx_GetCollisionOrigin
+	# OrangeBox (and probably L4D) 8
+	2013 10
+vtidx_CollisionToWorldTransform
+	# OrangeBox (and probably L4D) 10
+	2013 12
+
+# IEngineTrace
+vtidx_TraceRay
+	2013 4
+	L4D 5
+vtidx_PointOutsideWorld
+	2013 16
+	L4D 17
 
 # IVDebugOverlay
 vtidx_AddLineOverlay 3

@@ -92,6 +92,7 @@ setlocal DisableDelayedExpansion
 :+ l4dwarp.c
 :+ nomute.c
 :+ nosleep.c
+:+ oobents.c
 :+ os.c
 :+ portalcolours.c
 :+ rinput.c
